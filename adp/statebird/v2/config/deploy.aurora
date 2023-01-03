@@ -1,0 +1,131 @@
+import os
+
+class Profile(Struct):
+  role              = Default(String, os.environ['USER'])
+  environment       = Default(String, "devel")
+  name              = Default(String, "statebird-v2")
+  package           = Default(String, "{{name}}")
+  bundle_version    = Default(String, "latest")
+  statebird_version = Default(String, "v2")
+  jar               = Default(String, "{{name}}-server.jar")
+  args              = Default(String, "")
+  instances         = Default(Integer, 1)
+  batchsize         = Default(Integer, 1)
+  config            = Required(String)
+  enable_hooks      = Default(Boolean, False)
+
+resources = Resources(cpu = 2, ram = 8*GB, disk = 16*GB)
+
+thrift_run = JVMProcess(
+  name = '{{profile.name}}',
+  jvm = Java11(
+    extra_jvm_flags = ' '.join([
+       "-Denvironment={{profile.environment}}",
+       "-Djava.security.auth.login.config=config/jaas.conf",
+    ])
+  ),
+  arguments = ' '.join([
+    "-jar {{profile.jar}}",
+    "-admin.port=:{{thermos.ports[admin]}}",
+    "-service.port=:{{thermos.ports[thrift]}}",
+    "-service.configClass={{profile.config}}",
+    "-serviceIdentifier.cluster={{cluster}}",
+    "-com.twitter.eventbus.client.zoneName={{cluster}}",
+    "-com.twitter.eventbus.client.EnableKafkaSaslTls=true",
+    "-com.twitter.finagle.toggle.flag.overrides=com.twitter.finagle.mux.TlsSnoopingByDefault=1.0",
+    "-com.twitter.finagle.toggle.flag.overrides=com.twitter.finagle.mtls.server.UseThriftEndpointAcls=0.0",
+    "{{profile.args}}"
+  ]) + " com.twitter.statebird.server.{{profile.statebird_version}}.Main",
+  resources = resources
+)
+
+thrift_install = Packer.install(
+  name = '{{profile.package}}',
+  role = '{{profile.role}}',
+  version = '{{profile.bundle_version}}'
+)
+
+stats = Stats(library="metrics", port="admin")
+
+#heap dump configs
+heapdumpweb_installer = Packer.install('heap_dumper_web', role='heapdumper', version='latest')
+
+heapdumpweb_process = Process(
+  name='heapdumpweb_process',
+  cmdline='./heap_dumper_web.pex -f ./%s-jvmprocess.pid -s ./.healthchecksnooze --port {{thermos.ports[heapdump]}}' % '{{profile.name}}',
+  ephemeral=True
+)
+
+# Creates JAAS config for Kafka => EB migration. This step follows after creating keytabs in Kite
+# described here https://confluence.twitter.biz/pages/viewpage.action?pageId=107102665
+create_jaas_config = Process(
+    name           = 'create_jaas_config',
+    cmdline        = '''
+    mkdir config
+    echo "KafkaClient {
+      com.sun.security.auth.module.Krb5LoginModule required
+      principal=\\"{{profile.role}}@TWITTER.BIZ\\"
+      useKeyTab=true
+      storeKey=true
+      keyTab=\\"/var/lib/tss/keys/fluffy/keytabs/client/{{profile.role}}.keytab\\"
+      doNotPrompt=true;
+    };" >> config/jaas.conf
+    '''
+)
+
+thrift_task = Task(
+  name = "install_and_run",
+  processes = [thrift_install, create_jaas_config, stats, thrift_run, heapdumpweb_installer, heapdumpweb_process],
+  resources = resources,
+  constraints = order(thrift_install, create_jaas_config, thrift_run) + order(heapdumpweb_installer, heapdumpweb_process)
+)
+
+service = Service(
+  role = '{{profile.role}}',
+  environment = '{{profile.environment}}',
+  instances = '{{profile.instances}}',
+  name = '{{profile.name}}',
+  contact = 'adp-team@twitter.com',
+  announce = Announcer(primary_port='thrift', portmap={'aurora': 'admin', 'health': 'admin'}),
+  update_config = UpdateConfig( watch_secs = 0, batch_size = '{{profile.batchsize}}'),
+  health_check_config = HealthCheckConfig(
+      initial_interval_secs = 80,
+      interval_secs = 10,
+      timeout_secs = 15,
+      max_consecutive_failures = 4,
+      min_consecutive_successes = 2),
+  task = thrift_task,
+  enable_hooks='{{profile.enable_hooks}}',
+  constraints = {
+    'os': 'centos7',
+  }
+)
+
+Devel = Profile(
+  config = "com.twitter.statebird.server.{{profile.statebird_version}}.config.DevEmbeddedDbConfig",
+  args = "-com.twitter.statebird.server.common.config.dbPort={{thermos.ports[mysql]}}"
+)
+
+Staging = Profile(
+  config = "com.twitter.statebird.server.v2.config.StagingConfig",
+  instances = 3,
+  role = "statebird-staging",
+  environment = "staging",
+  args = "-com.twitter.statebird.server.common.config.dalErrorHandling=SuppressDalErrors"
+)
+
+Prod = Profile(
+  config = "com.twitter.statebird.server.v2.config.ProdConfig",
+  instances = 7,
+  batchsize = 2,
+  role = "statebird",
+  environment = "prod",
+  args = "-com.twitter.statebird.server.common.config.dalErrorHandling=AllowDalErrors",
+  bundle_version = "latest"
+)
+
+dcs = ["smf1", "atla", "pdxa"]
+
+jobs = [service(cluster = dc).bind(profile = Devel) for dc in dcs] + \
+       [service(cluster = dc).bind(profile = Staging) for dc in dcs] + \
+       [service(cluster = dc, tier = 'preferred').bind(profile = Prod) for dc in dcs]

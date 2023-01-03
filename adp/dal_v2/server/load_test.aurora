@@ -1,0 +1,135 @@
+from textwrap import dedent
+import os
+
+class Profile(Struct):
+  cluster           = Default(String, 'atla')
+  role              = Default(String, os.environ['USER'])
+  environment       = Default(String, "devel")
+  name              = Required(String)
+  contact           = Required(String)
+  package           = Default(String, "{{name}}-{{environment}}")
+  version           = Default(String, "latest")
+  jar               = Default(String, "{{name}}.jar")
+  args              = Required(String)
+  main              = Required(String)
+  schedule          = Required(String)
+  tier              = Default(String, "preemptible")
+  cpu               = Default(Float, 2.0)
+  ram               = Default(Integer, 16*GB)
+  disk              = Default(Integer, 4*GB)
+
+stats = Stats(library="metrics", port="admin")
+
+#heap dump configs
+heapdumpweb_installer = Packer.install('heap_dumper_web', role='heapdumper', version='latest')
+
+heapdumpweb_process = Process(
+  name='heapdumpweb_process',
+  cmdline='./heap_dumper_web.pex -f ./%s-jvmprocess.pid -s ./.healthchecksnooze --port {{thermos.ports[heapdump]}}' % '{{profile.name}}',
+  ephemeral=True
+)
+
+async_profiler_install = Packer.install(
+  name = 'async-profiler',
+  role = 'csl-perf',
+  version = 'latest'
+)
+
+install = Packer.install(
+  name = '{{profile.package}}',
+  role = '{{profile.role}}',
+  version = '{{profile.version}}',
+)
+
+discover_profiler_port_process = Process(
+  name = 'discover_profiler_port',
+  cmdline = 'echo {{thermos.ports[profiler]}} > profiler.port',
+)
+
+def get_resources(profile):
+  return Resources(cpu = profile.cpu(), ram = profile.ram(), disk = profile.disk())
+
+def get_run_process(profile):
+  return JVMProcess(
+    name = '{{profile.name}}',
+    jvm = Java11(
+      jvm_environment = {
+        "MESOS_JOB_KEY":"{{profile.cluster}}/{{profile.role}}/{{profile.environment}}/{{profile.name}}",
+        "MESOS_TASK_ID":"{{thermos.task_id}}",
+        "MESOS_HOST":"`hostname`",
+      },
+      extra_jvm_flags = ' '.join([
+        "-Denvironment={{profile.environment}}",
+        "-Dlog4j.configuration=com/twitter/twadoop/batch/task/log4j.properties",
+        "-Dlog.service.output={{profile.name}}.log",
+        "-Dlogback.configurationFile=logback.xml",
+      ]),
+    ),
+    arguments = ' '.join([
+      "-jar {{profile.jar}}",
+      "{{profile.main}}",
+      "{{profile.args}}",
+    ]),
+
+#     "-admin.port=:{{thermos.ports[admin]}}",
+    resources = get_resources(profile)
+  )
+
+def get_task(profile):
+  run_process = get_run_process(profile)
+  task_resources = get_resources(profile)
+  task_constraints = order(install, run_process) + order(heapdumpweb_installer, heapdumpweb_process)
+  task_processes = [
+    install, stats, run_process, discover_profiler_port_process, heapdumpweb_installer, heapdumpweb_process, async_profiler_install
+  ]
+
+  return Task(
+    name = "install_and_run",
+    processes = task_processes,
+    resources = task_resources,
+    constraints = task_constraints
+  )
+
+def get_job(profile):
+  task = get_task(profile)
+  return Job(
+    role = profile.role(),
+    environment = profile.environment(),
+    instances = 1,
+    name = profile.name(),
+    contact = 'adp-team@twitter.com',
+    announce = Announcer(primary_port='admin', portmap={'aurora': 'admin'}),
+    cluster = profile.cluster(),
+    update_config = UpdateConfig(watch_secs = 61, batch_size = 1),
+    health_check_config = HealthCheckConfig(initial_interval_secs = 60),
+    task = task,
+    cron_schedule = profile.schedule(),
+    cron_collision_policy = 'CANCEL_NEW',
+    constraints = {
+      'os': 'centos7',
+    },
+    tier = profile.tier(),
+  ).bind(profile=profile)
+
+load_test_job_staging = Profile(
+  role = 'dal-staging',
+  environment = "staging",
+  name = "dal-load-test",
+  contact = 'adp-team@twitter.com',
+  args = "-dalLocation=/cluster/local/dal-staging/staging/dal -meterBurstSize=25 -registerDatasetAttempts=100",
+  main = "com.twitter.dal.client.test.load.DALLoadTester",
+)
+
+load_test_job_devel = Profile(
+  role = 'dal-staging',
+  environment = "devel",
+  name = "dal-load-test",
+  contact = '{{WF_USER}}@twitter.com',
+  args = "-dalLocation=/cluster/local/dal-staging/devel/dal-{{WF_USER}} -meterBurstSize=15 -findInputSegmentsAttempts=3000 -testSuites=findInputSegments",
+  main = "com.twitter.dal.client.test.load.DALLoadTester",
+)
+
+jobs = [
+  get_job(load_test_job_staging),
+  get_job(load_test_job_devel),
+]

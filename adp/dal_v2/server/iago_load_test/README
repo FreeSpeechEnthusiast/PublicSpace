@@ -1,0 +1,48 @@
+Iago ( http://go/iago ) is a load generation library.
+This directory contains DAL load tests, implemented via Iago.
+
+If you've never run Iago load tests before, you'll need to create a developer-cert for the Iago
+server to use:
+
+  developer-cert-util --local --job iago
+
+Iago load tests run as a server.  To start a server on your laptop to run these load tests, run:
+
+  adp/dal_v2/server/iago_load_test/run_iago_local.sh
+
+After starting the server, you must send a command to the server to tell it to start a test:
+
+  iago-internal/scripts/client.sh -req=start
+
+You can also ask the use req=status, pause, resume, stop, start
+  iago-internal/scripts/client.sh -req=status
+
+
+You can see the config file for this test at:
+  adp/dal_v2/server/iago_load_test/dal-loadtest-staging.yaml
+
+This config file contains several configurable parameters for the test, including:
+- 'rps' : What rate, in requests-per-second, to call DAL at.
+- 'duration' / 'time' : How long to run the load test
+- 'thrift' / 'request_timeout' : How long to wait for an individual DAL request to finish
+
+After updating this config file, you'll need to restart the iago server server to pick up the
+updated configuration.
+
+
+The implementation for the load tests themselves is in the scala source at:
+  src/scala/com/twitter/dal/iago/BUILD
+
+
+*** A NOTE ABOUT STAGING and DALV1 *** 
+
+Currently, the DALv1 database used in STAGING isn't capable of handling any significant
+load, so load tests to DAL in staging WILL FAIL at trivially low loads.
+
+The most straight-forward workaround for this is likely to disable writing to DALv1, but currently
+that isn't easy to do in DAL.
+
+The JIRA at https://jira.twitter.biz/browse/AIPIPE-8618 tracks some work relatd making DALv1 use
+easy to disable.  As described in that JIRA, if disabling all DALv1 work were configurable, executing load
+tests in DAL-Staging would be significantly more useful.
+

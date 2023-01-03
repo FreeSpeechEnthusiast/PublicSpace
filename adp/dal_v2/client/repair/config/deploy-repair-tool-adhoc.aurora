@@ -1,0 +1,66 @@
+import os
+
+dc = os.getenv('DC') or 'smf1'
+dataset_role = os.getenv('DATASET_ROLE') or 'datapipeline'
+cluster = os.getenv('CLUSTER') or 'dw2'
+datasets = os.getenv('DATASETS') or ' '
+dal_env = os.getenv('DAL_ENVIRONMENT') or 'prod'
+extra_args = os.getenv('DAL_EXTRA_ARGS') or ' '
+
+PACKAGE_NAME = 'dal-repair-tool-adhoc'
+JOB_NAME = PACKAGE_NAME + '-%s-%s' % (cluster, dc)
+JOB_ROLE = 'dal'
+JOB_ENV = 'prod'
+
+AURORA_CLUSTER = dc
+
+splunk_app_id = "{{JOB_ROLE}}"
+splunk_tag = "{{AURORA_CLUSTER}}/{{JOB_ROLE}}/{{JOB_ENV}}/{{JOB_NAME}}"
+
+IS_PROD = JOB_ENV == 'prod'
+RESOURCES = Resources(cpu = 2.0, ram = 1024*MB, disk = 1024*MB)
+HADOOP_CONF = Hadoop(config = '/etc/hadoop/hadoop-conf-%s-%s' % (cluster, dc))
+
+repairtool_installer = Packer.install(PACKAGE_NAME, version='latest')
+
+repairtool_process = HadoopProcess(
+  name = JOB_NAME + '_process',
+  arguments = ' '.join([
+    'jar dal-repair-tool-bin.jar repair reference-segment',
+    '--role %s' % (dataset_role),
+    '--location-name %s-%s' % (cluster, dc),
+    '--name %s' % (datasets),
+    '--dal-environment %s' % (dal_env),
+    '%s' % (extra_args),
+  ]),
+  resources = RESOURCES,
+  jvm = Java11(
+    extra_jvm_flags =  ' '.join([
+      "-Dlog.lens.index={{splunk_app_id}}",
+      "-Dlog.lens.tag={{splunk_tag}}",
+    ]),
+  ),
+  hadoop = HADOOP_CONF
+)
+
+repairtool_task = SequentialTask(
+  name = JOB_NAME + '_task',
+  resources = RESOURCES,
+  processes = [repairtool_installer, repairtool_process],
+)
+
+repairtool_job = Job(
+  name = JOB_NAME,
+  cluster = AURORA_CLUSTER,
+  role = JOB_ROLE,
+  service = False,
+  environment = JOB_ENV,
+  update_config = UpdateConfig(),
+  production = IS_PROD,
+  task = repairtool_task,
+  constraints = {
+    'os': 'centos7',
+  },
+)
+
+jobs = [repairtool_job]

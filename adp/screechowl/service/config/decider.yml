@@ -1,0 +1,3 @@
+screechowlservice_dev_null:
+  comment: "Doesn't do anything. Useful for testing decider propagation and cost."
+  default_availability: 0

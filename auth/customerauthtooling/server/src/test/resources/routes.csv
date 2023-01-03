@@ -1,0 +1,4 @@
+path,cluster,domains,rate_limit,ldap_owners,auth_types,scopes,project
+/tfetestservice/customerauthtooling,tfe_test_service_mtls,api.twitter.com,0,"customerauthtooling,authplatform",oauth2,,test
+/tfetestservice/customerauthtooling/1,tfe_test_service_mtls,api.twitter.com,44,"customerauthtooling,authplatform",oauth2,"users.read,tweet.read",test
+/tfetestservice/customerauthtooling/2,tfe_test_service_mtls,api.twitter.com,55,"customerauthtooling,authplatform",oauth2,"users.read",test

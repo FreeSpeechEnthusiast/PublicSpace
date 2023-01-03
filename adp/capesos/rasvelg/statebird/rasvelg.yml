@@ -1,0 +1,9 @@
+db_config: db.yml
+zookeeper_root: /twitter/rasvelg
+task_dir: .
+tasks:
+  rasvelg_statebird_batch_run_cleanup: rasvelg_statebird_batch_run_cleanup.yml
+  rasvelg_dal_statebird_analyze_table: rasvelg_dal_statebird_analyze_table.yml
+  rasvelg_dal_db_dal_data_usage_cleanup: rasvelg_dal_db_dal_data_usage_cleanup.yml
+  rasvelg_dal_db_dal_data_usage_cleanup_staging: rasvelg_dal_db_dal_data_usage_cleanup_staging.yml
+  rasvelg_dal_statebird_keyspace_overflow_alert: rasvelg_dal_statebird_keyspace_overflow_alert.yml

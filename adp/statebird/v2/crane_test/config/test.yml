@@ -1,0 +1,13 @@
+# This is a minimal crane config, useful for testing. It defines the tasks that need to be run as part of this
+owner: adp-team@twitter.com
+task_dir: .
+
+tasks:
+  test_crane_simple: test_crane_simple.yml
+  test_crane_failing_validator: test_crane_failing_validator.yml
+  test_crane_batch_dependency_prevalidation: test_crane_batch_dependency_prevalidation.yml
+
+# Run test against different statebird environments
+statebird:
+  client_id: "statebird_crane_test"
+  service_destination: "${endpoint}"

@@ -1,0 +1,23 @@
+#A simple test task for using with test.yml
+flush_every: 100000
+add_batch_id: true
+batch_info:
+  first_time: ${taskRunTime}
+  batch_desc: test_crane_failing_validator
+  batch_domain: e2e-test-crane_test_v2
+  batch_environment: ${env}
+  batch_increment: 60
+skip_stages: 
+  - UpdatedData
+
+prevalidators:
+  - class: com.twitter.twadoop.crane.validation.SucceedingValidator
+  - class: com.twitter.twadoop.crane.validation.FailingValidator
+  - class: com.twitter.twadoop.crane.validation.SucceedingValidator
+
+import:
+  class: com.twitter.twadoop.crane.from.DummyImporterExporter
+
+export:
+  class: com.twitter.twadoop.crane.from.DummyImporterExporter
+

@@ -1,0 +1,14 @@
+{
+  "tunables" : [
+    {
+      "id" : "registerDataset",
+      "value": 6700,
+      "type": "int"
+    },
+    {
+      "id" : "deleteSegmentsByRootPath",
+      "value": 2800,
+      "type": "int"
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+import os
+
+JOB_NAME = 'benchmarking'
+
+class Profile(Struct):
+  name                 = Default(String, 'benchmarking')
+  jar                  = Default(String, 'benchmarking.jar')
+  cluster              = Required(String)
+  role                 = Required(String)
+  environment          = Required(String)
+  tier                 = Required(String)
+  hadoop_cluster       = Required(String)
+
+
+resources_config = Resources(cpu = 32, ram = 180 * GB, disk = 75 * GB)
+
+installers = [
+  Packer.install('benchmarking', version='latest')
+]
+
+annoy_runner_process = HadoopProcess(
+  name = '{{profile.name}}_process',
+  arguments = ' '.join([
+    'jar {{profile.jar}}',
+  ]),
+  jvm = Java8(
+    extra_jvm_flags = ' '.join([
+      '-Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address={{thermos.ports[debug]}}',
+    ]),
+    jvm_environment = {
+      'HADOOP_USER_CLASSPATH_FIRST': 'true',
+      'HADOOP_CLASSPATH': '{{profile.jar}}:libs/*:',
+    }
+  ),
+  resources = resources_config,
+  hadoop = Hadoop(config='/etc/hadoop/hadoop-conf-{{profile.hadoop_cluster}}')
+)
+
+annoy_runner_task = SequentialTask(
+  resources = resources_config,
+  processes = installers + [annoy_runner_process]
+)
+
+annoy_runner_job = Job(
+  name = JOB_NAME,
+  cluster = '{{profile.cluster}}',
+  role = '{{profile.role}}',
+  environment = '{{profile.environment}}',
+  update_config = UpdateConfig(),
+  tier = '{{profile.tier}}',
+  constraints = {'os' : 'centos7'},
+  task = annoy_runner_task,
+  service = False,
+)
+
+Prod = Profile(
+  role = 'cortex',
+  environment = 'prod',
+  tier = 'preferred',
+  cluster = 'smf1',
+  hadoop_cluster = 'dw2-smf1',
+)
+
+Devel = Profile(
+  role = 'cortex',
+  environment = 'devel',
+  tier = 'preemptible',
+  cluster = 'smf1',
+  hadoop_cluster = 'dw2-smf1',
+)
+
+jobs = [
+  annoy_runner_job().bind(profile=Prod()),
+  annoy_runner_job().bind(profile=Devel()),
+]

@@ -1,0 +1,29 @@
+# A simple crane test using dummy importer and exporter
+flush_every: 100000
+add_batch_id: true
+batch_info:
+  first_time: ${taskRunTime}
+  batch_desc: test_crane_simple
+  batch_domain: e2e-test-prevalidation_test_v2
+  batch_environment: ${env}
+  batch_increment: 60
+skip_stages:
+  - UpdatedData
+
+statebird:
+  client_id: "statebird_crane_test"
+  service_destination: "${endpoint}"
+
+prevalidators:
+  - class: com.twitter.twadoop.crane.validation.SucceedingValidator
+
+import:
+  class: com.twitter.twadoop.crane.from.DummyImporterExporter
+
+export:
+  class: com.twitter.twadoop.crane.to.DummyDALExporter
+  dal:
+    dal_enabled: true
+  params:
+    logical_name: test_crane_simple_output
+    physical_uri: "mysql://db-bb-rw-master-001.global-db.twttr.net:3306/analytics_prod/test_crane_simple_output"

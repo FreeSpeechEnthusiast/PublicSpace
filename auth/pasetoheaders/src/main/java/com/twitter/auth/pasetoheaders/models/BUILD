@@ -1,0 +1,18 @@
+java_library(
+    name = "models",
+    sources = ["**/*.java"],
+    platform = "java8",
+    provides = artifact(
+        org = "com.twitter",
+        name = "auth-pasetoheaders-models",
+        repo = artifactory,
+    ),
+    tags = ["bazel-compatible"],
+    dependencies = [
+        "3rdparty/jvm/com/fasterxml/jackson/core:jackson-annotations",
+        "3rdparty/jvm/com/fasterxml/jackson/core:jackson-core",
+        "3rdparty/jvm/com/fasterxml/jackson/core:jackson-databind",
+        "3rdparty/jvm/com/fasterxml/jackson/datatype:jackson-datatype-jdk8",
+        "3rdparty/jvm/com/fasterxml/jackson/datatype:jackson-datatype-jsr310",
+    ],
+)

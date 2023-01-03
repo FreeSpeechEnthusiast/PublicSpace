@@ -1,0 +1,84 @@
+{
+  "servers": [
+    {
+      "name": "policykeeper",
+      "indicators": [
+        {
+          "id": "success_rate_5m",
+          "indicator_type": "SuccessRateIndicator",
+          "duration": 5,
+          "duration_unit": "MINUTES"
+        }, {
+          "id": "throughput_10m",
+          "indicator_type": "ThroughputIndicator",
+          "duration": 10,
+          "duration_unit": "MINUTES"
+        }, {
+          "id": "latency_5m_p99",
+          "indicator_type": "LatencyIndicator",
+          "duration": 5,
+          "duration_unit": "MINUTES",
+          "percentile": 0.99
+        }, {
+          "id": "latency_5m_p999",
+          "indicator_type": "LatencyIndicator",
+          "duration": 5,
+          "duration_unit": "MINUTES",
+          "percentile": 0.999
+        }, {
+          "id": "latency_5m_p9999",
+          "indicator_type": "LatencyIndicator",
+          "duration": 5,
+          "duration_unit": "MINUTES",
+          "percentile": 0.9999
+        }
+      ],
+      "objectives": [
+        {
+          "indicator": "success_rate_5m",
+          "objective_type": "SuccessRateObjective",
+          "operator": ">=",
+          "threshold": 0.9999
+        },
+        {
+          "indicator": "latency_5m_p99",
+          "objective_type": "LatencyObjective",
+          "operator": "<",
+          "threshold": 100
+        },
+        {
+          "indicator": "latency_5m_p999",
+          "objective_type": "LatencyObjective",
+          "operator": "<",
+          "threshold": 150
+        },
+        {
+          "indicator": "latency_5m_p9999",
+          "objective_type": "LatencyObjective",
+          "operator": "<",
+          "threshold": 200
+        }
+      ],
+      "long_term_objectives": [
+        {
+          "id": "success_rate_7_days",
+          "objective_type": "SuccessRateObjective",
+          "operator": ">=",
+          "threshold": 0.999,
+          "duration": 7,
+          "duration_unit": "DAYS"
+        },
+        {
+          "id": "latency_p999_7_days",
+          "objective_type": "LatencyObjective",
+          "operator": "<=",
+          "threshold": 120,
+          "duration": 7,
+          "duration_unit": "DAYS",
+          "percentile": 0.999
+        }
+      ]
+    }
+  ],
+  "@version": 1
+}

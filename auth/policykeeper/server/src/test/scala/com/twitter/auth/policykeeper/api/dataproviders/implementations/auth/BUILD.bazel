@@ -1,0 +1,18 @@
+junit_tests(
+    sources = ["*.scala"],
+    compiler_option_sets = ["fatal_warnings"],
+    runtime_platform = "java11",
+    tags = ["bazel-compatible"],
+    dependencies = [
+        "3rdparty/jvm/junit",
+        "3rdparty/jvm/org/scalatest",
+        "3rdparty/jvm/org/scalatestplus:junit",
+        "auth/policykeeper/server/src/main/scala/com/twitter/auth/policykeeper/api/context",
+        "auth/policykeeper/server/src/main/scala/com/twitter/auth/policykeeper/api/dataproviders",
+        "auth/policykeeper/server/src/main/scala/com/twitter/auth/policykeeper/api/dataproviders/implementations/auth",
+        "auth/policykeeper/server/src/main/scala/com/twitter/auth/policykeeper/api/exceptions",
+        "auth/policykeeper/server/src/main/scala/com/twitter/auth/policykeeper/api/logger",
+        "auth/policykeeper/thrift/src/main/thrift:thrift-scala",
+        "configbus/subscriber",
+    ],
+)

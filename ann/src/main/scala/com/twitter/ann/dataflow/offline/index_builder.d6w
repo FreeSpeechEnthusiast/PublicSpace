@@ -1,0 +1,62 @@
+# See https://docbird.twitter.biz/d6w/model.html
+# Checkout the README to see how to deploy the job
+
+class Profile(Struct):
+  project = Required(String)
+  date = Required(String)
+  sql_file = Required(String)
+  entity_kind = Required(String)
+  algo = Required(String)
+  metric = Default(String, 'Cosine')
+  concurrency_level = Default(Integer, 24)
+  dimension = Default(Integer, 200)
+  ef_construction = Default(Integer, 100)
+  max_m = Default(Integer, 16)
+  expected_elements = Default(Integer, 1000000)
+  annoy_num_trees = Default(Integer, 2)
+  output_with_timestamp = Default(Boolean, 'false')
+
+
+job = Job(
+  name='index-builder',
+  project='{{profile.project}}',
+  staging_bucket='{{profile.project}}',
+  service_account='{{profile.user_name}}-shdw@twttr-dp-svc-accounts.iam.gserviceaccount.com',
+  region='us-central1',
+  worker_config=WorkerConfig(
+    num_workers=2
+  ),
+  extra_args={
+    "date": '{{profile.date}}',
+    "datasetSqlPath": '{{profile.sql_file}}',
+    "dimension": '{{profile.dimension}}',
+    "entityKind": '{{profile.entity_kind}}',
+    "algo": '{{profile.algo}}',
+    "metric": '{{profile.metric}}',
+    "concurrencyLevel": '{{profile.concurrency_level}}',
+    "efConstruction": '{{profile.ef_construction}}',
+    "maxM": '{{profile.max_m}}',
+    "expectedElements": '{{profile.expected_elements}}',
+    "annoyNumTrees": '{{profile.annoy_num_trees}}',
+    "gcpTempLocation": 'gs://user.{{profile.user_name}}.dp.gcp.twttr.net/temp',
+    "outputPath": "gs://user.{{profile.user_name}}.dp.gcp.twttr.net/ann_index",
+    "outputWithTimestamp": '{{profile.output_with_timestamp}}',
+    # To enable DAL replication, set the below flags.
+    # Refer the TwHIN use case https://sourcegraph.twitter.biz/git.twitter.biz/source/-/blob/src/scala/com/twitter/wtf/dataflow/twhin_tweet_embedding/index_generation/config/twhin_tweet_ann_index_builder.d6w?L73
+    # "outputDALPath": 'ann_index',
+    # "datasetModuleName": 'custom_ann_index_name',
+    # "datasetOwnerRole": 'dataset_ldap',
+    # "enableDalRegistration": 'true',
+  },
+  deployment_config=BatchDeploymentConfig(
+    role='{{profile.user_name}}',
+    build_target='ann/src/main/scala/com/twitter/ann/dataflow/offline:index_builder',
+    gcp_deployment_credentials='/var/lib/tss/keys/{{profile.user_name}}/cloud/gcp/dp/shadow.json',
+    statebird_config=StatebirdConfig(
+      batch_width='PT1H',
+      first_time='{{profile.date}}'
+    )
+  )
+)
+
+jobs=[job.bind(profile=Profile())]

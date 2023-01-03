@@ -1,0 +1,53 @@
+---
+__STATE__:
+  first_time: 2015-06-21 00:00:00
+
+init:
+  - executor: com.twitter.twadoop.analytics.rasvelg.executors.AnalyticsBatchExecutor
+    bind_keys:
+      - batch_id
+      - data_start_time java.sql.Date
+      - data_end_time java.sql.Date
+    params:
+      batch_info:
+        batch_desc: rasvelg_statebird_batch_run_cleanup
+        batch_domain: statebird
+        batch_increment: 3600
+    callbacks:
+      - com.twitter.twadoop.analytics.rasvelg.callbacks.PassIfNoBatch
+
+run:
+
+# Delete 'abort' (-2 status) batch runs
+  - db: statebird_db_prod
+    executor: com.twitter.twadoop.analytics.rasvelg.executors.SqlExecutor
+    params:
+      sql:
+        "DELETE a1, a2, a3, a4
+         FROM statebird.batch_run a1
+         LEFT JOIN statebird.batch_run_annotation a2
+           ON a1.id = a2.batch_run_id
+         LEFT JOIN statebird.batch_run_note a3
+           ON a1.id = a3.batch_run_id
+         LEFT JOIN statebird.batch_run_state_history a4
+           ON a1.id = a4.batch_run_id
+         WHERE a1.state = -2
+         AND a1.created_at >= DATE_ADD(<% DATA_START_TIME %>, INTERVAL -1 MONTH)
+         AND a1.created_at < DATE_ADD(<% DATA_END_TIME %>, INTERVAL -1 MONTH);"
+
+verify: []
+
+err:
+  - db: statebird_db_prod
+    executor: com.twitter.twadoop.analytics.rasvelg.executors.RollbackExecutor
+
+  - executor: com.twitter.twadoop.analytics.rasvelg.executors.BatchError
+
+pass:
+  - executor: com.twitter.twadoop.analytics.rasvelg.executors.BatchPass
+
+success:
+  - db: statebird_db_prod
+    executor: com.twitter.twadoop.analytics.rasvelg.executors.CommitExecutor
+
+  - executor: com.twitter.twadoop.analytics.rasvelg.executors.BatchSuccess

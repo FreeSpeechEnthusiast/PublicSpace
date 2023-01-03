@@ -1,0 +1,53 @@
+import os
+
+class Profile(Struct):
+  role              = Default(String, os.environ['USER'])
+  environment       = Default(String, "devel")
+  name              = Default(String, "batch-scala-example")
+  package           = Default(String, "{{name}}-app")
+  bundle_version           = Default(String, "latest")
+  jar               = Default(String, "{{name}}-bin.jar")
+  cron_schedule     = Default(String, "")
+  flags             = Default(String, "")
+
+resources = Resources(cpu = 1, ram = 2*GB, disk = 1*GB)
+
+run = JVMProcess(
+  name = '{{profile.name}}',
+  jvm = Java11(extra_jvm_flags = "-Denvironment={{profile.environment}}"),
+  arguments = ' '.join([
+    "-jar {{profile.jar}}",
+  ]) +  " {{profile.flags}}",
+  resources = resources
+)
+
+install = Packer.install(
+  name = '{{profile.package}}',
+  role = '{{profile.role}}',
+  version = '{{profile.bundle_version}}'
+)
+
+task = SequentialTask(
+  name = "install_and_run",
+  processes = [install, run],
+  resources = resources
+)
+
+job = Job(
+  role = '{{profile.role}}',
+  environment = '{{profile.environment}}',
+  name = '{{profile.name}}',
+  cron_schedule = '{{profile.cron_schedule}}',
+  cron_collision_policy = 'CANCEL_NEW',
+  contact = '{{role}}@twitter.com',
+  update_config = UpdateConfig( batch_size = 1, watch_secs = 61),
+  health_check_config = HealthCheckConfig(initial_interval_secs = 60),
+  task = task
+)
+
+Devel = Profile(cron_schedule = "*/15 * * * *")
+
+jobs = []
+dcs = ["smf1", "atla"]
+
+jobs += [job(cluster = dc).bind(profile = Devel) for dc in dcs]

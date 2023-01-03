@@ -1,0 +1,102 @@
+class Profile(Struct):
+  cluster = Default(String, "smf1")
+  cron_collision_policy = Default(String, "CANCEL_NEW")
+  cron_schedule = Default(String, "* */1 * * *")
+  environment = Required(String)
+  log_level = Default(String, "google:INFO")
+  name = Default(String, "aws-dataset-observer")
+  package_name = Required(String)
+  package_version = Default(String, "latest")
+  role = Required(String)
+  server_args = Required(String)
+  tier = Default(String, "preferred")
+  pex_name = Default(String, "dataset_observer.pex")
+  s2s_cert_dir = Required(String)
+
+install_sidecar = Packer.install(role='egress-ci', name='envoy', version='latest')
+
+install_sidecar_config = Packer.install(role='egress-ci', name='mesos_sidecar_config', version='latest')
+
+configure_sidecar = Process(
+  name = 'configure sidecar binary',
+  cmdline = 'chmod +x envoy',
+)
+
+update_sidecar_config = Process(
+  name = 'update sidecar config',
+  cmdline = """
+    sed -i 's|_SIDECAR_PORT_|{{thermos.ports[proxy]}}|g' mesos_sidecar.yaml && \
+    sed -i 's|_S2S_CRT_|{{profile.s2s_cert_dir}}/client.crt|g' mesos_sidecar.yaml && \
+    sed -i 's|_S2S_KEY_|{{profile.s2s_cert_dir}}/client.key|g' mesos_sidecar.yaml && \
+    sed -i 's|_S2S_CHAIN_|{{profile.s2s_cert_dir}}/client.chain|g' mesos_sidecar.yaml
+  """
+)
+
+run_sidecar = Process(
+  name = 'run_sidecar',
+  cmdline = './envoy --use-dynamic-base-id -c mesos_sidecar.yaml',
+)
+
+download_server = Packer.install(
+  '{{profile.package_name}}',
+  role = '{{profile.role}}',
+  version='{{profile.package_version}}'
+)
+
+chmod_server = Process(
+    name = 'chmod_server',
+    cmdline = 'chmod +x {{profile.pex_name}}'
+)
+
+run_server = Process(
+  name = 'run_server',
+  cmdline = "./{{profile.pex_name}} {{profile.server_args}} --envoy-proxy-url=http://localhost:{{thermos.ports[proxy]}} --load-tss-creds --log_to_stderr={{profile.log_level}}"
+)
+
+sidecar_task = Task(
+  processes = [install_sidecar, configure_sidecar, install_sidecar_config, update_sidecar_config, run_sidecar],
+  constraints = order(install_sidecar, configure_sidecar, install_sidecar_config, update_sidecar_config, run_sidecar),
+  resources = Resources(cpu = 0.1, ram = 124 * MB, disk = 24 * MB)
+)
+
+server_task = Task(
+  processes = [download_server,  chmod_server, run_server],
+  constraints = order(download_server, chmod_server, run_server),
+  resources = Resources(cpu = 0.9, ram = 900 * MB, disk = 1000 * MB)
+)
+
+combined_server_task = Tasks.combine(sidecar_task,server_task)
+
+
+server_job = Job(
+  announce = Announcer(),
+  name = '{{profile.name}}',
+  role = '{{profile.role}}',
+  instances = 1,
+  environment = '{{profile.environment}}',
+  tier = '{{profile.tier}}',
+  cluster = '{{profile.cluster}}',
+  task = combined_server_task
+)
+
+server_cron = Job(
+  announce = Announcer(),
+  name = '{{profile.name}}',
+  role = '{{profile.role}}',
+  instances = 1,
+  environment = '{{profile.environment}}',
+  tier = '{{profile.tier}}',
+  cluster = '{{profile.cluster}}',
+  cron_collision_policy = '{{profile.cron_collision_policy}}',
+  cron_schedule = '{{profile.cron_schedule}}',
+  task = combined_server_task
+)
+
+prod = Profile(
+  environment = "prod",
+  package_name = "aws-dataset-observer",
+  role = "aws-dal-registration-svc",
+  server_args = "",
+  s2s_cert_dir = '/var/lib/tss/keys/s2s/smf1/prod/aws-dal-reg-svc/aws-dal-registration-svc')
+
+jobs = [server_cron.bind(profile=prod)]

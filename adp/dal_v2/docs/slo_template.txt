@@ -1,0 +1,47 @@
+.. This is a generated file, DO NOT EDIT.  Update it with source/adp/dal_v2/docs/gen_slo_docs.sh
+
+DAL.__METHOD_NAME__() Metrics
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Latency and Success Rate Charts are embedded below.
+
+DAL.__METHOD_NAME__() Latency Milliseconds
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+.. raw:: html
+
+         <div class="viz-widget"  
+              data-is-live=true  
+              data-time-granularity="60"
+              data-title="__METHOD_NAME__ Latency"
+              data-queries='
+                [
+                  {
+                  "name":"__METHOD_NAME__ p99 latency",
+                  "query":"zone([atla, smf1, pdxa], default(-1, ts(AVG, dal.prod.dal, members(sd.dal.prod.dal),   client_request/__METHOD_NAME__/latency_ms.p99)))",
+                  "dc":"smf1"
+                  }
+                ]'
+              data-width="600"
+              data-height="225"></div> <script src="https://monitoring.twitter.biz/widget" type="text/javascript"></script>
+
+DAL.__METHOD_NAME__() Success Rate
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+.. raw:: html
+
+    <div class="viz-widget"
+         data-is-live=true
+         data-time-granularity="60"
+         data-title="__METHOD_NAME__ Success Rate %"
+         data-queries='
+             [
+                 {
+                 "name":"__METHOD_NAME__ success rate %",
+                 "query":"zone([atla, smf1, pdxa], ( 100 *  sum(default(0, ts(sum, dal.prod.dal, members(sd.dal.prod.dal), client_request/__METHOD_NAME__/success))))  /   sum(default(0, ts(sum, dal.prod.dal, members(sd.dal.prod.dal), client_request/__METHOD_NAME__/requests))))",
+                 "dc":"smf1"
+                 }
+                 ]'
+         data-width="600"
+         data-height="225"></div> <script src="https://monitoring.twitter.biz/widget" type="text/javascript"></script>
+         

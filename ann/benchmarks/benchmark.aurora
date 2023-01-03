@@ -1,0 +1,101 @@
+import os
+
+JOB_NAME = 'ann_benchmark'
+JOB_ROLE = 'cortex'
+JOB_ALGORITHM = '{{job_algorithm}}'
+JOB_DATASET = '{{job_dataset}}'
+JOB_EXPERIMENT_ID = '{{job_experiment_id}}'
+
+class Profile(Struct):
+  environment         = Required(String)
+  hadoop_cluster      = Required(String)
+  cpu                 = Default(Integer, 1)
+  ram                 = Default(Integer, 30*GB)
+  disk                = Default(Integer, 60*GB)
+  cluster             = Default(String, 'smf1')
+  algorithm           = Required(String) # Comma separated list of algos
+  dataset             = Required(String)
+  experiment_id       = Required(String) # Unique experimentId per dataset.
+  output_hdfs_dir     = Default(String, 'hdfs://default/user/cortex/ann_benchmarks/runs')
+  dataset_hdfs_dir    = Default(String, 'hdfs://default/user/cortex/ann_benchmarks/truth_datasets')
+  benchmark_version   = Default(String, 'live')
+
+install_pex = Packer.copy(
+  'ann_benchmark',
+  role = JOB_ROLE,
+  version = '{{profile.benchmark_version}}'
+)
+
+install_faiss_ldlib = Packer.install(
+  'faiss_ldlib',
+  role = JOB_ROLE,
+  version = 'live'
+)
+
+run_ann_benchmark = Process(
+  name = 'run_ann_benchmark' ,
+  cmdline = '''set -e
+  chmod +x ann_benchmark.pex
+  export HADOOP_CONF_DIR=/etc/hadoop/hadoop-conf-{{profile.hadoop_cluster}}/
+  export JAVA_HOME=/usr/lib/jvm/java-11-twitter
+  export HADOOP_HOME=/usr/local/hadoop
+  export HADOOP_HDFS_HOME=/usr/local/hadoop
+  export TWML_HOME=`pwd`
+  export PATH=$TWML_HOME/bin:$PATH
+  source ${HADOOP_HOME}/libexec/hadoop-config.sh
+  export HADOOP_OPTS="$HADOOP_OPTS -Ddfs.client.block.write.retries=7"
+  export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${JAVA_HOME}/jre/lib/amd64/serve:ldlib
+  CLASSPATH=$(${HADOOP_HDFS_HOME}/bin/hadoop classpath --glob) ./ann_benchmark.pex --dataset {{profile.dataset}} --algorithm '{{profile.algorithm}}' --output_hdfs_dir '{{profile.output_hdfs_dir}}/{{profile.environment}}' --dataset_hdfs_dir {{profile.dataset_hdfs_dir}} --experiment_id {{profile.experiment_id}}
+  '''
+)
+
+resources = Resources(
+  cpu = "{{profile.cpu}}",
+  ram = "{{profile.ram}}",
+  disk = "{{profile.disk}}"
+)
+
+ann_benchmark_task = SequentialTask(
+  processes = [install_pex, install_faiss_ldlib, run_ann_benchmark],
+  resources = resources
+)
+
+job_constraints = {
+  'os': 'centos7',
+}
+
+ann_benchmark_job = Job(
+  cluster = '{{profile.cluster}}',
+  environment = '{{profile.environment}}',
+  role = JOB_ROLE,
+  name = JOB_NAME,
+  constraints = job_constraints,
+  task = ann_benchmark_task,
+  announce=Announcer(primary_port='http'),
+)
+
+Devel = Profile(
+  environment = 'devel',
+  cluster = 'smf1',
+  hadoop_cluster = 'dw2-smf1',
+  dataset = JOB_DATASET,
+  algorithm = JOB_ALGORITHM,
+  experiment_id = JOB_EXPERIMENT_ID,
+  benchmark_version = 'latest'
+)
+
+Prod = Profile(
+  environment = 'prod',
+  cluster = 'smf1',
+  hadoop_cluster = 'dw2-smf1',
+  dataset = JOB_DATASET,
+  algorithm = JOB_ALGORITHM,
+  experiment_id = JOB_EXPERIMENT_ID,
+  benchmark_version = 'live'
+)
+
+jobs = [
+  ann_benchmark_job.bind(profile=Devel),
+  ann_benchmark_job.bind(profile=Prod)
+]
+

@@ -1,0 +1,8 @@
+*.pyc
+*.o
+protocol/c/fr-*
+
+*.class
+ann_benchmark_dataset
+ann_benchmark_result
+ann_benchmark_plots

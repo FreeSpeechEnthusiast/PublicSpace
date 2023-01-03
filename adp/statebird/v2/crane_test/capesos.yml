@@ -1,0 +1,24 @@
+__global__:
+  role: ${user}
+  namespace: ${user}_crane
+
+__default__:
+  class: HadoopCrane
+  contact: noreply@twitter.com
+  cluster: ${cluster}
+  disable_failure_email: true
+  disable_success_email: true
+  cron_collision_policy: CANCEL_NEW
+  hadoop_config: /etc/hadoop/hadoop-conf-proc-atla
+  env: ${env}
+
+__crane_job__: &__crane_job__
+  pants_target: bundle adp/statebird/v2/crane_test:crane_binary
+  bundle: crane_binary.tar.gz  # output of pants in the dist/ directory
+  mainjar: crane_binary.jar    # specify the main jar to run in the bundle
+  use_my_mainjar: true         # use the 'mainjar' param
+  crane_config: ${crane_config_location}
+
+${test_build_target}:
+  <<: *__crane_job__
+  crane_task_config: ${test_config_location}

@@ -1,0 +1,112 @@
+import os
+
+class Profile(Struct):
+  cluster           = Default(String, "atla")
+  role              = Default(String, os.environ["USER"])
+  environment       = Default(String, "staging")
+  name              = Default(String, "screech-owl-task-silence-alerts")
+  package           = Default(String, "{{name}}")
+  bundle_version    = Default(String, "latest")
+  jar               = Default(String, "screech-owl-task-silence-alerts.jar")
+  main              = Default(String, "com.twitter.screechowl.task.silence_alerts.SilenceAlertsForAppsWithNoSuccess")
+  args              = Required(String)
+  cron_schedule     = Default(String, "2 14 * * 1")
+
+resources = Resources(cpu = 2, ram = 2*GB, disk = 1*GB)
+
+stats = Stats(library="metrics", port="admin")
+
+#heap dump configs
+heapdumpweb_installer = Packer.install("heap_dumper_web", role="heapdumper", version="latest")
+
+heapdumpweb_process = Process(
+  name="heapdumpweb_process",
+  cmdline="./heap_dumper_web.pex -f ./%s-jvmprocess.pid -s ./.healthchecksnooze --port {{thermos.ports[heapdump]}}" % "{{profile.name}}",
+  ephemeral=True
+)
+
+run = JVMProcess(
+  name = "{{profile.name}}",
+  jvm = Java11(
+    extra_jvm_flags = " ".join([
+      "-Denvironment={{profile.environment}}",
+      "-Dlog.service.output={{name}}.log", 
+      "-Dlogback.configurationFile=logback/logback.xml",
+      "-Dlog4j.configuration=com/twitter/twadoop/batch/task/log4j.properties"
+    ])
+  ),
+  arguments = " ".join([
+    "-jar {{profile.jar}}",
+    "-admin.port=:{{thermos.ports[admin]}}",
+    "-serviceIdentifier.cluster={{profile.cluster}}",
+    "-serviceIdentifier.role={{profile.role}}",
+    "-serviceIdentifier.service={{profile.name}}",
+    "-serviceIdentifier.environment={{profile.environment}}",
+    "{{profile.args}}",
+    "{{profile.main}}"
+  ]),
+  resources = resources
+)
+
+install = Packer.install(
+  name = "{{profile.package}}",
+  role = "{{profile.role}}",
+  version = "{{profile.bundle_version}}"
+)
+
+task = Task(
+  name = "install_and_run",
+  processes = [install, stats, run, heapdumpweb_installer, heapdumpweb_process],
+  resources = resources,
+  constraints = order(install, run) + order(heapdumpweb_installer, heapdumpweb_process)
+)
+
+screechowl_task = Job(
+  role = "{{profile.role}}",
+  environment = "{{profile.environment}}",
+  name = "{{profile.name}}",
+  contact = "adp-team@twitter.com",
+  announce = Announcer(primary_port="admin", portmap={"aurora": "admin", "health": "admin"}),
+  cluster = "{{profile.cluster}}",
+  task = task,
+  update_config = UpdateConfig(watch_secs = 61, batch_size = 1),
+  health_check_config = HealthCheckConfig(initial_interval_secs = 60),
+  cron_schedule = "{{profile.cron_schedule}}",
+  cron_collision_policy = "CANCEL_NEW",
+  constraints = {
+    "os": "centos7",
+  },
+)
+
+staging_dryrun = Profile(
+  name = "screech-owl-task-silence-alerts-dryrun",
+  role = "screechowl-staging",
+  environment = "staging",
+  args = "-env=staging -dryRun=true "
+)
+staging = Profile(
+  role = "screechowl-staging",
+  environment = "staging",
+  args = "-env=staging -dryRun=false",
+  cron_schedule = "35 17 2 * *"
+)
+prod_dryrun = Profile(
+  name = "screech-owl-task-silence-alerts-dryrun",
+  role = "screechowl",
+  environment = "prod",
+  args = "-env=prod -dryRun=true",
+)
+prod = Profile(
+  role = "screechowl",
+  environment = "prod",
+  args = "-env=prod -dryRun=false",
+  cron_schedule = "18 12,23 * * *"
+)
+
+jobs = [
+  screechowl_task.bind(profile = staging_dryrun),
+  screechowl_task.bind(profile = staging),
+  screechowl_task.bind(profile = prod_dryrun),
+  screechowl_task(tier = 'preferred').bind(profile = prod)
+]
+

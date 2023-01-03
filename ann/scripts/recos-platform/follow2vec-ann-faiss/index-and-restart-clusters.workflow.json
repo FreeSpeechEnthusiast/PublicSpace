@@ -1,0 +1,121 @@
+{
+    "role": "cassowary",
+    "name": "follow2vec-ann-faiss-indexing",
+    "sync-type": "auto",
+    "description": "Rebuild indices daily and restart ann instances for follow2vec-ann-faiss service",
+    "subscriptions": [
+      {
+        "type": "SLACK",
+        "recipients": [
+          {
+            "to": "relevance-platform-infra-bot"
+          }
+        ],
+        "events": [
+          "*STARTED",
+          "*SUCCESS"
+        ]
+      },
+      {
+        "type": "SLACK",
+        "recipients": [
+          {
+            "to": "relevance-platform-infra-bot",
+            "mention": "oncall"
+          }
+        ],
+        "events": [
+          "*FAILED",
+          "*ABORTED"
+        ]
+      }
+    ],
+    "parameters": [
+      {
+        "name": "dc",
+        "default": "atla",
+        "description": "The DC to deploy the job to"
+      }
+    ],
+    "build": {
+      "steps": [],
+      "play": "true",
+      "trigger": {
+        "cron-schedule": "00 17 * * *"
+      }
+    },
+    "targets": [
+      {
+        "type": "script",
+        "name": "Build fresh index",
+        "repository": "source",
+        "description": "Generate index for follow2vec-faiss using the ANN index builder",
+        "command": "aurora job create {{dc}}/cassowary/prod/follow2vec-ann-faiss-index-builder ann/scripts/recos-platform/follow2vec-ann-faiss/index-builder.aurora --bind=profile.embedding_date_range=$( date -d 'yesterday 13:00' '+%Y-%m-%d' ) --wait-until=FINISHED",
+        "dependencies": [
+          {
+            "role": "aurora",
+            "name": "aurora",
+            "version": "latest"
+          }
+        ],
+        "keytab": "/var/lib/tss/keys/fluffy/keytabs/client/cassowary.keytab",
+        "timeout": "3.hours"
+      },
+      {
+        "type": "group",
+        "name": "restarts",
+        "enforceOrdering": false,
+        "targets": [
+          {
+            "type": "script",
+            "name": "follow2vec-ann-faiss - restart ANN service smf1",
+            "repository": "source",
+            "description": "Restart the ANN service to pick up the new indexes",
+            "command": "aurora job restart smf1/cassowary/prod/follow2vec-ann-faiss",
+            "dependencies": [
+              {
+                "role": "aurora",
+                "name": "aurora",
+                "version": "latest"
+              }
+            ],
+            "keytab": "/var/lib/tss/keys/fluffy/keytabs/client/cassowary.keytab",
+            "timeout": "1.hours"
+          },
+          {
+            "type": "script",
+            "name": "follow2vec-ann-faiss - restart ANN service atla",
+            "repository": "source",
+            "description": "Restart the ANN service to pick up the new indexes",
+            "command": "aurora job restart atla/cassowary/prod/follow2vec-ann-faiss",
+            "dependencies": [
+              {
+                "role": "aurora",
+                "name": "aurora",
+                "version": "latest"
+              }
+            ],
+            "keytab": "/var/lib/tss/keys/fluffy/keytabs/client/cassowary.keytab",
+            "timeout": "1.hours"
+          },
+          {
+            "type": "script",
+            "name": "follow2vec-ann-faiss - restart ANN service pdxa",
+            "repository": "source",
+            "description": "Restart the ANN service to pick up the new indexes",
+            "command": "aurora job restart pdxa/cassowary/prod/follow2vec-ann-faiss",
+            "dependencies": [
+              {
+                "role": "aurora",
+                "name": "aurora",
+                "version": "latest"
+              }
+            ],
+            "keytab": "/var/lib/tss/keys/fluffy/keytabs/client/cassowary.keytab",
+            "timeout": "1.hours"
+          }
+        ]
+      }
+    ]
+  }
+  

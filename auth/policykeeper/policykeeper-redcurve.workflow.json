@@ -1,0 +1,73 @@
+{
+  "role": "policykeeper",
+  "name": "redcurve-policykeeper",
+  "sync-type": "auto",
+  "description": "Launch a RedCurve test against policykeeper server. To trigger a manual build, click Build after specifying zone (smf1, atla or pdxa) and target (canary or cluster)",
+  "config-files": [],
+  "parameters": [
+    {
+      "name": "zone",
+      "default": "smf1",
+      "description": "The data center in which the RedCurve test will execute (either smf1, atla or pdxa)."
+    },
+    {
+      "name": "target",
+      "default": "canary",
+      "description": "The target against which the RedCurve test will execute (either canary or cluster)."
+    }
+  ],
+  "build": {
+    "steps": [],
+    "play": "true",
+    "trigger": {
+      "cron-schedule": "30 20 * * 1-5"
+    }
+  },
+  "targets": [
+    {
+      "type": "script",
+      "description": "Run Redcurve using perfy-configs/authplatform/policykeeper_redcurve.yml config. To see RedCurve results, select the config at http://go/redcurve/policykeeper",
+      "name": "SMF1",
+      "repository": "source",
+      "command": "[[ $BUILD_USER == cron || {{zone}} == smf1 ]] && zone=smf1 || zone=skip && sh perfy-configs/scripts/execute_redcurve_via_workflows.sh -c perfy-configs/authplatform/policykeeper_redcurve.yml -z $zone -t {{target}} -u policykeeper@TWITTER.BIZ -f /var/lib/tss/keys/fluffy/keytabs/client/policykeeper.keytab",
+      "dependencies": [
+        {
+          "role": "perfy",
+          "name": "perfy-cli",
+          "version": "live"
+        }
+      ],
+      "timeout": "180.minutes"
+    },
+    {
+      "type": "script",
+      "description": "Run Redcurve using perfy-configs/authplatform/policykeeper_redcurve.yml config. To see RedCurve results, select the config at http://go/redcurve/policykeeper",
+      "name": "ATLA",
+      "repository": "source",
+      "command": "[[ $BUILD_USER == cron || {{zone}} == atla ]] && zone=atla || zone=skip && sh perfy-configs/scripts/execute_redcurve_via_workflows.sh -c perfy-configs/authplatform/policykeeper_redcurve.yml -z $zone -t {{target}} -u policykeeper@TWITTER.BIZ -f /var/lib/tss/keys/fluffy/keytabs/client/policykeeper.keytab",
+      "dependencies": [
+        {
+          "role": "perfy",
+          "name": "perfy-cli",
+          "version": "live"
+        }
+      ],
+      "timeout": "180.minutes"
+    },
+    {
+      "type": "script",
+      "description": "Run Redcurve using perfy-configs/authplatform/policykeeper_redcurve.yml config. To see RedCurve results, select the config at http://go/redcurve/policykeeper",
+      "name": "PDXA",
+      "repository": "source",
+      "command": "[[ $BUILD_USER == cron || {{zone}} == pdxa ]] && zone=pdxa || zone=skip && sh perfy-configs/scripts/execute_redcurve_via_workflows.sh -c perfy-configs/authplatform/policykeeper_redcurve.yml -z $zone -t {{target}} -u policykeeper@TWITTER.BIZ -f /var/lib/tss/keys/fluffy/keytabs/client/policykeeper.keytab",
+      "dependencies": [
+        {
+          "role": "perfy",
+          "name": "perfy-cli",
+          "version": "live"
+        }
+      ],
+      "timeout": "180.minutes"
+    }
+  ]
+}

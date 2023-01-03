@@ -1,0 +1,33 @@
+{
+    "role": "cassowary",
+    "name": "faiss-query-server",
+    "sync-type": "auto",
+    "repository": "source",
+    "subscriptions": [
+      {
+        "type": "SLACK",
+        "recipients": [
+          {
+            "to": "relevance-platform-infra-bot"
+          }
+        ],
+        "events": [
+          "TARGET*"
+        ]
+      }
+    ],
+    "description": "Build new package each time ann source code change",
+    "build": {
+      "trigger": {
+        "scm": {
+          "paths": [
+            "ann"
+          ]
+        }
+      },
+      "bazel-bundle-jvm": "ann/src/main/scala/com/twitter/ann/service/query_server/faiss:faiss-query-server",
+      "play": "false"
+    },
+    "targets": []
+  }
+  

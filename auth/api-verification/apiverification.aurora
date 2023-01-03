@@ -1,0 +1,108 @@
+import os
+
+SERVICE_NAME = 'apiverification'
+SERVICE_ROLE = 'passbird'
+
+class Profile(Struct):
+  role = Default(String, SERVICE_ROLE)
+  package_label = Default(String, '')
+  package_version = Default(String, 'latest')
+  job_name = Default(String, SERVICE_NAME)
+  cmdline_flags = Default(String, '')
+  log_level = Default(String, 'INFO')
+
+resources = Resources(
+  cpu = 1,
+  ram = 5*GB,
+  disk = 4*GB
+)
+
+install = Packer.install(
+  role = '{{profile.role}}',
+  name = '{{profile.job_name}}{{profile.package_label}}',
+  version = '{{profile.package_version}}'
+)
+
+main = JVMProcess(
+  name = SERVICE_NAME,
+  jvm = Java11(
+    heap = 3*GB,
+    metaspace = 1*GB,
+    extra_log_selectors = [
+      'profiling+tenuring',
+      'profiling+concgc',
+    ],
+    extra_jvm_flags = '-Djava.net.preferIPv4Stack=true'
+      ' -XX:ErrorFile=java_error%p.log'
+      ' -Dlog.root.level={{profile.log_level}}'
+      ' -Dlog.lens.tag={{cluster}}/{{role}}/{{environment}}/{{name}}'
+      ' -Dlog.lens.index={{role}}'
+  ),
+  arguments = '-jar {{name}}.jar'
+    ' -service.identifier={{role}}:{{name}}:{{environment}}:{{cluster}}'
+    ' -admin.port=:{{thermos.ports[admin]}}'
+    ' {{profile.cmdline_flags}}',
+  resources = resources
+)
+
+
+job_template = Job(
+  name = '{{profile.job_name}}',
+  role = '{{profile.role}}',
+  contact = '{{role}}@twitter.com',
+  constraints = {'rack': 'limit:1', 'host': 'limit:1'}, # Change as appropriate
+  cron_schedule = '*/5 * * * *', # Run every 5 minutes: https://crontab.guru/#*/5_*_*_*_*
+  cron_collision_policy = 'CANCEL_NEW',
+  task = Task(
+    resources = resources,
+    name = SERVICE_NAME,
+    processes = [install, main, Stats(library="metrics", port="admin")],
+    constraints = order(install, main)
+  ),
+  update_config = UpdateConfig(
+    watch_secs = 120
+  )
+)
+
+PRODUCTION = Profile()
+
+STAGING = Profile(
+  cmdline_flags = ''
+)
+
+DEVEL = STAGING(
+  # In this example, you will only be able to deploy to devel under your username.
+  # When you have a shared role, you may prefer the following to simplify chargeback,
+  # deployment automation, and service-to-service authentication.
+  #
+  #  role = SERVICE_ROLE
+  #  job_name = SERVICE_NAME + "_" + os.environ['USER']
+  #
+
+  role = os.environ['USER'],
+  job_name = SERVICE_NAME,
+  package_label = '-devel',
+  log_level = 'DEBUG',
+)
+
+prod_job = job_template(
+  tier = 'preferred',
+  instances = 1,
+  environment = 'prod'
+).bind(profile = PRODUCTION)
+
+staging_job = job_template(
+  instances = 1,
+  environment = 'staging'
+).bind(profile = STAGING)
+
+devel_job = job_template(
+  instances = 1,
+  environment = 'devel'
+).bind(profile = DEVEL)
+
+jobs = []
+for cluster in ['atla', 'smf1']:
+  jobs.append(prod_job(cluster = cluster))
+  jobs.append(staging_job(cluster = cluster))
+  jobs.append(devel_job(cluster = cluster))

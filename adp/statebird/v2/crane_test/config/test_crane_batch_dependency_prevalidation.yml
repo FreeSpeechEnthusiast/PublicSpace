@@ -1,0 +1,36 @@
+flush_every: 100000
+add_batch_id: true
+batch_info:
+  first_time: ${taskRunTime}
+  batch_desc: test_crane_batch_dependency_prevalidation
+  batch_domain: e2e-test-prevalidation_test_v2
+  batch_environment: ${env}
+  batch_increment: 60
+skip_stages:
+  - UpdatedData
+
+statebird:
+  client_id: "statebird_crane_test"
+  service_destination: "${endpoint}"
+
+prevalidators:
+  - class: com.twitter.twadoop.batch.validators.BatchDependencyValidator
+    params:
+      batch_desc: test_crane_simple
+      batch_domain: e2e-test-prevalidation_test_v2
+      batch_environment: ${env}
+
+import:
+  class: com.twitter.twadoop.crane.from.DummyDALImporter
+  dal:
+    dal_enabled: true
+  params:
+    logical_name: test_crane_simple_output
+
+export:
+  class: com.twitter.twadoop.crane.to.DummyDALExporter
+  dal:
+    dal_enabled: true
+  params:
+    logical_name: test_crane_batch_dependency_prevalidation_output
+    physical_uri: "mysql://db-bb-rw-master-001.global-db.twttr.net:3306/analytics_prod/test_crane_batch_dependency_prevalidation_output"

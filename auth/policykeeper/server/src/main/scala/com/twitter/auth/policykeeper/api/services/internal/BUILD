@@ -1,0 +1,22 @@
+scala_library(
+    compiler_option_sets = ["fatal_warnings"],
+    tags = ["bazel-compatible"],
+    dependencies = [
+        "3rdparty/jvm/com/google/inject:guice",
+        "3rdparty/jvm/javax/inject:javax.inject",
+        "3rdparty/jvm/net/codingwell:scala-guice",
+        "3rdparty/jvm/org/slf4j:slf4j-api",
+        "auth/policykeeper/server/src/main/scala/com/twitter/auth/policykeeper/api/evaluationengine",
+        "auth/policykeeper/server/src/main/scala/com/twitter/auth/policykeeper/api/evaluationengine/scalastaticengine",
+        "auth/policykeeper/server/src/main/scala/com/twitter/auth/policykeeper/api/evaluationservice",
+        "auth/policykeeper/server/src/main/scala/com/twitter/auth/policykeeper/api/exceptions",
+        "auth/policykeeper/server/src/main/scala/com/twitter/auth/policykeeper/api/interpolation",
+        "auth/policykeeper/server/src/main/scala/com/twitter/auth/policykeeper/api/services",
+        "auth/policykeeper/server/src/main/scala/com/twitter/auth/policykeeper/api/storage",
+        "auth/policykeeper/thrift/src/main/thrift:thrift-scala",
+        "finatra/inject/inject-core/src/main/scala",
+        "twitter-server/server/src/main/scala",
+        "util/util-core:scala",
+        "util/util-slf4j-api/src/main/scala",
+    ],
+)

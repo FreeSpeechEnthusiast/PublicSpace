@@ -1,0 +1,78 @@
+import os
+
+JOB_NAME = 'benchmark_dataset_builder'
+JOB_ROLE = 'cortex'
+
+class Profile(Struct):
+  environment              = Required(String)
+  hadoop_cluster           = Required(String)
+  cpu                      = Default(Integer, 1)
+  ram                      = Default(Integer, 90*GB)
+  disk                     = Default(Integer, 60*GB)
+  cluster                  = Default(String, 'smf1')
+  output_dir               = Required(String)
+  dataset_name             = Required(String)
+  input_tab_embedding_dir  = Required(String)
+
+
+install_pex = Packer.copy(
+  'benchmark_dataset_builder',
+  role = JOB_ROLE,
+  version = 'latest'
+)
+
+benchmark_dataset_builder = Process(
+  name = 'build_ann_dataset' ,
+  cmdline = '''set -e
+  chmod +x main.pex
+  export HADOOP_CONF_DIR=/etc/hadoop/hadoop-conf-{{profile.hadoop_cluster}}/
+  export JAVA_HOME=/usr/lib/jvm/java-11-twitter
+  export HADOOP_HOME=/usr/local/hadoop
+  export HADOOP_HDFS_HOME=/usr/local/hadoop
+  export TWML_HOME=`pwd`
+  source ${HADOOP_HOME}/libexec/hadoop-config.sh
+  export HADOOP_OPTS="$HADOOP_OPTS -Ddfs.client.block.write.retries=7"
+  CLASSPATH=$(${HADOOP_HDFS_HOME}/bin/hadoop classpath --glob) ./main.pex \
+  --input_tab_embedding_dir {{profile.input_tab_embedding_dir}} \
+  --output_dir {{profile.output_dir}} \
+  --dataset_name {{profile.dataset_name}}
+  '''
+)
+
+resources = Resources(
+  cpu = "{{profile.cpu}}",
+  ram = "{{profile.ram}}",
+  disk = "{{profile.disk}}"
+)
+
+benchmark_dataset_builder_task = SequentialTask(
+  processes = [install_pex, benchmark_dataset_builder],
+  resources = resources
+)
+
+job_constraints = {
+  'os': 'centos7',
+}
+
+benchmark_dataset_builder_job = Job(
+  cluster = '{{profile.cluster}}',
+  environment = '{{profile.environment}}',
+  role = JOB_ROLE,
+  name = JOB_NAME,
+  constraints = job_constraints,
+  task = benchmark_dataset_builder_task
+)
+
+Devel = Profile(
+  environment = 'devel',
+  cluster = 'smf1',
+  hadoop_cluster = 'dw2-smf1',
+  output_dir = '{{output_dir_binding}}',
+  dataset_name = '{{dataset_name_binding}}',
+  input_tab_embedding_dir = '{{input_tab_embedding_dir_binding}}',
+)
+
+jobs = [
+  benchmark_dataset_builder_job.bind(profile=Devel)
+]
+

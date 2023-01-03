@@ -1,0 +1,3 @@
+path,cluster,domains,rate_limit,ldap_owners,auth_types
+/tfetestservice/customerauthtooling,tfe_test_service_mtls,api.twitter.com,0,"customerauthtooling,authplatform",oauth2
+/tfetestservice/customerauthtooling/1,tfe_test_service_mtls,api.twitter.com,44,"customerauthtooling,authplatform",oauth2

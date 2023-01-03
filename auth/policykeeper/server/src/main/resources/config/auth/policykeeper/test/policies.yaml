@@ -1,0 +1,156 @@
+policies:
+  - policy_id: simple_policy
+    decider:
+    data_providers:
+    eligibility_criteria:
+    rules:
+      - expression: DemoAuthRule(unittests_static.varInt) # unittests_static.varLong > 0
+        action:
+          action_needed: true
+          api_error_code: 501
+        priority: 0
+    name: simple policy
+    description: 'should return True 501'
+    fail_closed: true
+  - policy_id: slow_policy
+    decider:
+    data_providers:
+    eligibility_criteria:
+    rules:
+      - expression: DemoAuthRule(unittests_slow.var1) # unittests_slow.var1 > 0
+        action:
+          action_needed: true
+          api_error_code: 501
+        priority: 0
+    name: slow policy
+    description: 'should return Timeout'
+    fail_closed: true
+  - policy_id: faulty_policy
+    decider:
+    data_providers:
+    eligibility_criteria:
+    rules:
+      - expression: DemoAuthRule(unittests_faulty.var1) # unittests_faulty.var1 > 0
+        action:
+          action_needed: true
+          api_error_code: 501
+        priority: 0
+    name: faulty policy
+    description: 'should return Failure'
+    fail_closed: true
+  - policy_id: simple_policy_negative
+    decider:
+    data_providers:
+    eligibility_criteria:
+    rules:
+      - expression: DemoAuthRule(unittests_static.varZeroLong) # unittests_static.varZeroLong > 0
+        action:
+          action_needed: true
+          api_error_code: 501
+        priority: 0
+    name: simple policy with negative outcome
+    description: 'should return False'
+    fail_closed: true
+  - policy_id: multi_rule_policy
+    decider:
+    data_providers:
+    eligibility_criteria:
+    rules:
+      - expression: DemoAuthRule(unittests_static.varZeroLong) # unittests_static.varZeroLong > 0
+        action:
+          action_needed: true
+          api_error_code: 501
+        priority: 0
+      - expression: DemoAuthRule(unittests_static.varLong) # unittests_static.varLong > 0
+        action:
+          action_needed: true
+          api_error_code: 502
+        priority: 1
+      - expression: DemoAuthRule(unittests_static.varInt) # unittests_static.varInt > 0
+        action:
+          action_needed: true
+          api_error_code: 503
+        priority: 2
+    name: multi rule policy
+    description: 'should return True 502'
+    fail_closed: true
+  - policy_id: multi_rule_policy_with_unknown_vars
+    decider:
+    data_providers:
+    eligibility_criteria:
+    rules:
+      - expression: DemoAuthRule(unittests_static.unknown) # unittests_static.unknown > 0
+        action:
+          action_needed: true
+          api_error_code: 501
+        priority: 0
+      - expression: DemoAuthRule(unittests_static.varInt) # unittests_static.varInt > 0
+        action:
+          action_needed: true
+          api_error_code: 502
+        priority: 1
+    name: multi rule policy with unknown vars
+    description: 'should return Noinput'
+    fail_closed: true
+  - policy_id: simple_password_protected
+    decider:
+    data_providers:
+    eligibility_criteria:
+    rules:
+      - expression: DoesntHaveAccessToken(access_token.hasAccessToken)
+        action:
+          action_needed: true
+          api_error_code: 214
+        fallback_action:
+          action_needed: true
+          api_error_code: 214
+        priority: 0
+      - expression: TslaPasswordVerifiedTooLongTimeAgo(auth_events.lastPasswordVerifiedTimestampMs, static.i60)
+        action:
+          action_needed: true
+          api_error_code: 410
+        fallback_action:
+          action_needed: true
+          api_error_code: 410
+        priority: 1
+    name: Simple TSLA Password Protected Endpoint Policy
+    description: Checks if password is verified more than specified time ago
+    fail_closed: false
+  - policy_id: tsla_password_protected
+    decider:
+    data_providers:
+    eligibility_criteria:
+    rules:
+      - expression: TslaInvalidCurrentPassword(auth.userId, input.current_password, auth.sessionHash)
+        action:
+          action_needed: true
+          api_error_code: 114
+        priority: 0
+      - expression: TslaPasswordVerifiedTooLongTimeAgo(auth_events.lastPasswordVerifiedTimestampMs, static.i60)
+        action:
+          action_needed: true
+          bouncer_settings:
+            target:
+              target_type: session
+              user_id: "{{auth.userId}}"
+              session_hash: "{{auth.sessionHash}}"
+              feature: auth_challenge
+            location: "/account/access?feature=auth_challenge&session={{auth.encodedSessionHash}}"
+            experience: FullOptional
+            template_ids:
+              - module_tsla_password_entry_auth_challenge
+            template_mapping:
+              tslaAuthChallengeData:
+                token: "{{access_token.token}}"
+                tokenKind: "{{access_token.tokenKind}}"
+              redirectUrl: "{{input.redirect_after_verify}}"
+            referring_tags:
+              - TSLA
+              - MODULE
+        fallback_action:
+          action_needed: true
+          api_error_code: 214
+        priority: 1
+    name: TSLA Password Protected Endpoint Policy
+    description: Checks if password is verified more than specified time ago
+    fail_closed: true

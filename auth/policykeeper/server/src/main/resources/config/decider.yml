@@ -1,0 +1,9 @@
+test_value:
+  comment: Test Value
+  default_availability: 10000
+dark_traffic_percent:
+  comment: Percentage of traffic to to send to dark traffic destination
+  default_availability: 0
+enable_tsla_password_protected_policy:
+  comment: Enables TSLA password protected policy
+  default_availability: 0

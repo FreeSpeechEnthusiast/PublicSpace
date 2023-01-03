@@ -1,0 +1,28 @@
+# Description
+
+The ManhattanEmbeddingProducer is an EmbeddingProducer that is backed by a static manhattan dataset.
+
+# Setting up Data
+
+Data needs to be setup correctly in manhattan in order to be able to read the data using the
+ManhattanEmbeddingProducer. You can use the EmbeddingSamplingJob to do this. The job can reads
+embedding data from HDFS and re-writes it in the manhattan data format on HDFS.
+
+.. codeblock:: bash
+  scalding remote run \
+    --target cortex-core/entity-embeddings/src/scala/main/com/twitter/scalding/util/EmbeddingFormat:embeddingformat-deploy \
+    --main-class com.twitter.scalding.entityembeddings.util.EmbeddingFormat.EmbeddingSamplingJob \
+    -- --entity_kind user \
+    --input.feature_store_embedding ConsumerFollowEmbedding300Dataset \
+    --input.feature_store_major_version 1546473691 \
+    --input.date_range 2019-01-06 \
+    --output.embedding_path manhattanPath \
+    --output.embedding_format manhattan \
+    --sample_percent 100
+
+Once you have put data in the correct format, setup a manhattan read-only dataset for the data at
+go/mh. The job needs to read from the datapath you wrote to in the previous command.
+
+# Test reading the dataset
+
+You can test that you can read the data using the scala repl by following this `documentation <https://docbird.twitter.biz/ann/ann_debugging.html#debugging-repl>`_

@@ -1,0 +1,34 @@
+{
+  "servers": [
+    {
+      "name": "dal",
+      "indicators": [
+        {
+          "id": "success_rate_10m",
+          "indicator_type": "SuccessRateIndicator",
+          "duration": 10,
+          "duration_unit": "MINUTES"
+        }
+      ],
+      "objectives": [
+        {
+          "indicator": "success_rate_10m",
+          "objective_type": "SuccessRateObjective",
+          "operator": ">=",
+          "threshold": 0.9995
+        }
+      ],
+      "long_term_objectives": [
+        {
+          "id": "success_rate_28_days",
+          "objective_type": "SuccessRateObjective",
+          "operator": ">=",
+          "threshold": 0.9995,
+          "duration": 28,
+          "duration_unit": "DAYS"
+        }
+      ]
+    }
+  ],
+  "@version": 1
+}

@@ -1,0 +1,352 @@
+dp_name,dp_id,c1,c2,c3,c4,c5,c6,c7
+delete.notification.self,1001,delete,,,notification,self,,ReadWrite
+display.useraccount.self,1002,display,blocked,,useraccount,self,,Read
+display.useraccount.self,1003,display,devicefollowed,,useraccount,self,,Read
+display.list.self,1004,display,followed,,list,self,,Read
+display.useraccount.self,1005,display,followed,,useraccount,self,,Read
+display.tweet.geolocation,1006,display,inferred,,tweet,geolocation,,Read
+display.conversation.self,1007,display,muted,,conversation,self,,Read
+display.tweet.self,1008,display,muted,,tweet,self,,Read
+display.useraccount.self,1009,display,muted,,useraccount,self,,Read
+display.tweet.self,1010,display,promoted,,tweet,self,,Read
+display.tweet.self,1011,display,protected,,tweet,self,,Read
+display.tweet.self,1012,display,public,,tweet,self,,Read
+display.tweet.geolocation,1013,display,userspecified,,tweet,geolocation,,Read
+display.dm.self.[count],1014,display,,,dm,self,count,ReadWriteDM
+display.list.self,1015,display,,,list,self,,Read
+display.notification.self,1016,display,,,notification,self,,Read
+display.notification.timestamp,1017,display,,,notification,timestamp,,Read
+display.tweet.annotations,1018,display,,,tweet,annotations,,Read
+display.tweet.device,1019,display,,,tweet,device,,Read
+display.tweet.language,1020,display,,,tweet,language,,Read
+display.tweet.media,1021,display,,,tweet,media,,Read
+display.tweet.reply,1022,display,,,tweet,reply,,Read
+display.tweet.self.[count],1023,display,,,tweet,self,count,Read
+display.tweet.self,1024,display,,,tweet,self,,Read
+display.tweet.takedowns,1025,display,,,tweet,takedowns,,Read
+display.twittercomm.text,1026,display,,,twittercomm,text,,Read
+display.useraccount.handle,1027,display,,,useraccount,handle,,Read
+display.useraccount.self,1028,display,,,useraccount,self,,Read
+display.useraccount.takedowns,1029,display,,,useraccount,takedowns,,Read
+display.useraccount.userinteractions,1030,display,,,useraccount,userinteractions,,Read
+update.notification.timestamp,1031,update,,,notification,timestamp,,ReadWrite
+read.useraccount.id,1032,read,,,useraccount,id,,Read
+read.notification.email-type (notification categories),1033,read,,,notification,email-type (notification categories),,Read
+display.auth.code,1034,display,2FA,,auth,code,,Read
+read.auth.hash,1035,read,SHA2,,auth,hash,,Read
+read.auth.hash,1036,read,MD5,,auth,hash,,Read
+display.UserAccount.email,1037,display,masked,,UserAccount,email,,Read
+read.UserAccount.handle,1038,read,,,UserAccount,handle,,Read
+create.Auth.code,1039,create,2FA,,Auth,code,,Read
+Display.DM.All,1040,Display,,,DM,All,,ReadWriteDM
+Read.App.Id,1041,Read,,,App,Id,,Read
+Read.DM.Media-attachment,1042,Read,,,DM,Media-attachment,,ReadWriteDM
+Read.DM.text,1043,Read,,,DM,text,,ReadWriteDM
+Display.DM.text,1044,Display,,,DM,text,,ReadWriteDM
+Read.UserAccount.settings,1045,Read,OpenDMs,,UserAccount,settings,,Read
+Display.UserAccount.Id,1046,Display,,,UserAccount,Id,,Read
+Read.DM.Id,1047,Read,,,DM,Id,,ReadWriteDM
+Display.DM.welcomeMessage,1048,Display,,,DM,welcomeMessage,,ReadWriteDM
+Create.DM.welcomeMessage,1049,Create,,,DM,welcomeMessage,,ReadWriteDM
+Update.DM.welcomeMessage,1050,Update,,,DM,welcomeMessage,,ReadWriteDM
+Display.Auth.Token,1051,Display,KDT-token,,Auth,Token,,Read
+Read.Auth.Cookie,1052,Read,,,Auth,Cookie,,Read
+Display.Tweet.likes.[count],1053,Display,aggregate,,Tweet,likes,count,Read
+Display.Tweet.replies.[count],1054,Display,aggregate,,Tweet,replies,count,Read
+Display.Tweet.retweet.[count],1055,Display,aggregate,,Tweet,retweet,count,Read
+Display.Tweet.quote.[count],1056,Display,aggregate,,Tweet,quote,count,Read
+Display.DM.Conversation ID,1057,Display,,,DM,Conversation ID,,ReadWriteDM
+Read.ClientApp.Id,1058,Read,,,ClientApp,Id,,Read
+Display.UserAccount.Phonenumber,1059,Display,,,UserAccount,Phonenumber,,Read
+Create.AdsAccount.Tweet,1060,Create,,,AdsAccount,Tweet,,ReadWrite
+Read.AdsAccount.Tweet,1061,Read,,,AdsAccount,Tweet,,Read
+Delete.AdsAccount.Tweet,1062,Delete,,,AdsAccount,Tweet,,ReadWrite
+Display.AdsAccount.Id,1063,Display,,,AdsAccount,Id,,Read
+Read.AdsAccount.Id,1064,Read,,,AdsAccount,Id,,Read
+Display.AdsAccount.profile,1065,Display,,,AdsAccount,profile,,Read
+Display.AdsAccount.appstore-apps,1066,Display,,,AdsAccount,appstore-apps,,Read
+Read.AdsAccount.Media metadata,1067,Read,,,AdsAccount,Media metadata,,Read
+Display.AdsAccount.Media metadata,1068,Display,,,AdsAccount,Media metadata,,Read
+Read.AdsAccount.Media Key,1069,Read,,,AdsAccount,Media Key,,Read
+Display.AdsAccount.media,1070,Display,,,AdsAccount,media,,Read
+Create.AdsAccount.Stored card,1071,Create,,,AdsAccount,Stored card,,ReadWrite
+Display.Card.cta-labels,1072,Display,,,Card,cta-labels,,Read
+Display.Card.Id,1073,Display,,,Card,Id,,Read
+Create.Card.metadata,1074,Create,,,Card,metadata,,ReadWrite
+Read.Card.metadata,1075,Read,,,Card,metadata,,Read
+Display.Card.metadata,1076,Display,,,Card,metadata,,Read
+Update.Card.metadata,1077,Update,,,Card,metadata,,ReadWrite
+Update.Card.all,1078,Update,,,Card,all,,ReadWrite
+Delete.Tweet.text,1079,Delete,draft,,Tweet,text,,ReadWrite
+Delete.Tweet.text,1080,Delete,scheduled,,Tweet,text,,ReadWrite
+Delete.Tweet.Id,1081,Delete,draft,,Tweet,Id,,ReadWrite
+Create.Tweet.Id,1082,Create,scheduled,,Tweet,Id,,ReadWrite
+Create.Tweet.Id,1083,Create,,,Tweet,Id,,ReadWrite
+Display.Card.all,1084,Display,,,Card,all,,Read
+Delete.Tweet.media,1085,Delete,,,Tweet,media,,ReadWrite
+Create.Tweet.media,1086,Create,,,Tweet,media,,ReadWrite
+Create.Tweet.text,1087,Create,,,Tweet,text,,ReadWrite
+Update.UserAccount.Device,1088,Update,,,UserAccount,Device,,ReadWrite
+Display.DM.media,1089,Display,,,DM,media,,ReadWriteDM
+Create.DM.text,1090,Create,,,DM,text,,ReadWriteDM
+Create.DM.media,1091,Create,,,DM,media,,ReadWriteDM
+Update.DM.text,1092,Update,,,DM,text,,ReadWriteDM
+Update.DM.media,1093,Update,,,DM,media,,ReadWriteDM
+Read.Useraccount.countryCode,1094,Read,,,Useraccount,countryCode,,Read
+Read.Auth.oauth-token,1095,Read,,,Auth,oauth-token,,Read
+Read.Useraccount.FollowedAccounts,1096,Read,,,Useraccount,FollowedAccounts,,Read
+Read.Useraccount.Marketing - referral,1097,Read,,,Useraccount,Marketing - referral,,Read
+Read.Device.KDT-token,1098,Read,,,Device,KDT-token,,Read
+Display.Auth.oauth-token,1099,Display,,,Auth,oauth-token,,Read
+Display.Device.KDT-token,1100,Display,,,Device,KDT-token,,Read
+Display.Auth.verification-code,1101,Display,,,Auth,verification-code,,Read
+Read.Tweet.ID,1102,Read,,,Tweet,ID,,Read
+Display.Ads.3rdparty-website-url,1103,Display,,,Ads,3rdparty-website-url,,Read
+Display.Ads.Media-id,1104,Display,,,Ads,Media-id,,Read
+Read.UserAccount.ip-address,1105,Read,,,UserAccount,ip-address,,Read
+Display.Ads.tracking,1106,Display,,,Ads,tracking,,Read
+Read.UserAccount.Language,1107,Read,,,UserAccount,Language,,Read
+Display.AdsAccount.handle,1108,Display,,,AdsAccount,handle,,Read
+Display.AdsAccount.fullname,1109,Display,,,AdsAccount,fullname,,Read
+Read.Card.Id,1110,Read,,,Card,Id,,Read
+Display.AdsAccount.appstore-app-ids,1111,Display,,,AdsAccount,appstore-app-ids,,Read
+Display.AdsAccount.timezone,1112,Display,,,AdsAccount,timezone,,Read
+Display.AdsAccount.flag (IsVerified),1113,Display,,,AdsAccount,flag (IsVerified),,Read
+Display.AdsAccount.flag (IsProtected),1114,Display,,,AdsAccount,flag (IsProtected),,Read
+Create.AdsAccount.media url,1115,Create,,,AdsAccount,media url,,ReadWrite
+Display.AdsAccount.feature flag,1116,Display,,,AdsAccount,feature flag,,Read
+Display.Ads.3rdparty-video-url,1117,Display,,,Ads,3rdparty-video-url,,Read
+Read.Ads.3rdparty-video-url,1118,Read,,,Ads,3rdparty-video-url,,Read
+Display.Ads.Campaign features,1119,Display,,,Ads,Campaign features,,Read
+Update.Ads.Campaign features,1120,Update,,,Ads,Campaign features,,ReadWrite
+Read.Ads.Campaign features,1121,Read,,,Ads,Campaign features,,Read
+Create.Ads.Campaign features,1122,Create,,,Ads,Campaign features,,ReadWrite
+Delete.Ads.Campaign features,1123,Delete,,,Ads,Campaign features,,ReadWrite
+Read.tweet.geolocation,1124,Read,,,tweet,geolocation,,Read
+Delete.tweet.metadata,1125,Delete,,,tweet,metadata,,ReadWrite
+Read.End User.Name,1126,Read,,,End User,Name,,Read
+Read.End User.handle,1127,Read,,,End User,handle,,Read
+Read.End User.profile,1128,Read,,,End User,profile,,Read
+Read.End User.media,1129,Read,,,End User,media,,Read
+Read.End User.FollowedUsers,1130,Read,,,End User,FollowedUsers,,Read
+Read.End User.FollowedAccounts,1131,Read,,,End User,FollowedAccounts,,Read
+Read.End User.FollowingUsers,1132,Read,,,End User,FollowingUsers,,Read
+Read.End User.FollowingAccounts,1133,Read,,,End User,FollowingAccounts,,Read
+Read.End User.flag (IsProtected),1134,Read,,,End User,flag (IsProtected),,Read
+Update.End User.Name,1135,Update,,,End User,Name,,ReadWrite
+Update.End User.handle,1136,Update,,,End User,handle,,ReadWrite
+Update.End User.flag (IsProtected),1137,Update,,,End User,flag (IsProtected),,ReadWrite
+Update.End User.FollowingUsers,1138,Update,,,End User,FollowingUsers,,ReadWrite
+Update.End User.FollowingAccounts,1139,Update,,,End User,FollowingAccounts,,ReadWrite
+Delete.End User.Name,1140,Delete,,,End User,Name,,ReadWrite
+Delete.End User.handle,1141,Delete,,,End User,handle,,ReadWrite
+Delete.End User.FollowingUsers,1142,Delete,,,End User,FollowingUsers,,ReadWrite
+Delete.End User.FollowingAccounts,1143,Delete,,,End User,FollowingAccounts,,ReadWrite
+Delete.BusinessAccount.Subscription,1144,Delete,,,BusinessAccount,Subscription,,ReadWrite
+Read.BusinessAccount.Subscription,1145,Read,,,BusinessAccount,Subscription,,Read
+Delete.BusinessAccount.Rule,1146,Delete,,,BusinessAccount,Rule,,ReadWrite
+Read.BusinessAccount.Rule,1147,Read,,,BusinessAccount,Rule,,Read
+Read.Tweet.reply,1148,Read,,,Tweet,reply,,Read
+Read.Tweet.retweet,1149,Read,,,Tweet,retweet,,Read
+Read.Tweet.Like,1150,Read,,,Tweet,Like,,Read
+Read.Tweet.media,1151,Read,,,Tweet,media,,Read
+Read.Tweet.text,1152,Read,,,Tweet,text,,Read
+Delete.AdsAccount.media url,1153,Delete,,,AdsAccount,media url,,ReadWrite
+Read.End User.timestamp,1154,Read,,,End User,timestamp,,Read
+Read.End User.Biodata,1155,Read,,,End User,Biodata,,Read
+Read.End User.ID,1156,Read,,,End User,ID,,Read
+Read.End User.Location,1157,Read,,,End User,Location,,Read
+Read.End User.IsProtected,1158,Read,,,End User,IsProtected,,Read
+Read.End User.IsVerified,1159,Read,,,End User,IsVerified,,Read
+Read.End User.IsVisible,1160,Read,,,End User,IsVisible,,Read
+Read.End User.geolocation,1161,Read,,,End User,geolocation,,Read
+Read.End User.Engagements,1162,Read,,,End User,Engagements,,Read
+Read.Tweet.URL,1163,Read,,,Tweet,URL,,Read
+Read.Tweet.Hashtag,1164,Read,,,Tweet,Hashtag,,Read
+Read.Tweet.Language,1165,Read,,,Tweet,Language,,Read
+Read.Tweet.EngagementType,1166,Read,,,Tweet,EngagementType,,Read
+Read.Tweet.Pinned,1168,Read,,,Tweet,Pinned,,Read
+Read.Tweet.quote,1169,Read,,,Tweet,quote,,Read
+Read.Tweet.SafetyLabel,1170,Read,,,Tweet,SafetyLabel,,Read
+Read.Tweet.Status,1171,Read,,,Tweet,Status,,Read
+Read.Tweet.UserFlags,1172,Read,,,Tweet,UserFlags,,Read
+Read.Tweet.likes.[count],1173,Read,,,Tweet,likes,count,Read
+Read.Tweet.likes.[impression],1174,Read,,,Tweet,likes,impression,Read
+Read.Tweet.retweet.[count],1175,Read,,,Tweet,retweet,count,Read
+Read.Tweet.retweet.[impression],1176,Read,,,Tweet,retweet,impression,Read
+Read.Tweet.Click.[count],1177,Read,,,Tweet,Click,count,Read
+Read.Tweet.Impressions.[impression],1178,Read,,,Tweet,Impressions,impression,Read
+Read.Tweet.quote.[count],1179,Read,,,Tweet,quote,count,Read
+Read.Tweet.quote.[impression],1180,Read,,,Tweet,quote,impression,Read
+Update.Ads.Impressions.[impression],1181,Update,,,Ads,Impressions,impression,ReadWrite
+Display.End User.Name,1182,Display,,,End User,Name,,Read
+Display.End User.handle,1183,Display,,,End User,handle,,Read
+Display.End User.Image,1184,Display,,,End User,Image,,Read
+Display.End User.IsProtected,1185,Display,,,End User,IsProtected,,Read
+Display.End User.IsVerified,1186,Display,,,End User,IsVerified,,Read
+Display.End User.ID,1187,Display,,,End User,ID,,Read
+Display.AdsAccount.Media Key,1188,Display,,,AdsAccount,Media Key,,Read
+Display.End User.media,1189,Display,,,End User,media,,Read
+Display.Tweet.AnnotationsEntitiesMetadata,1190,Display,,,Tweet,AnnotationsEntitiesMetadata,,Read
+Display.Tweet.Hashtag,1191,Display,,,Tweet,Hashtag,,Read
+Read.Tweet.Conversation ID,1196,Read,,,Tweet,Conversation ID,,Read
+Read.End User.SafetyLabel,1197,Read,,,End User,SafetyLabel,,Read
+Read.End User.AuthorityDetails,1198,Read,,,End User,AuthorityDetails,,Read
+Read.End User.PrivacySettings,1199,Read,,,End User,PrivacySettings,,Read
+Read.End User.ip-address,1200,Read,,,End User,ip-address,,Read
+Read.Device.id,1201,Read,,,Device,id,,Read
+Read.Device.Model,1202,Read,,,Device,Model,,Read
+Read.Device.OperatingSystem,1203,Read,,,Device,OperatingSystem,,Read
+Read.Device.Type,1204,Read,,,Device,Type,,Read
+Read.End User.WebAppUsage,1205,Read,,,End User,WebAppUsage,,Read
+Create.End User.id,1206,Create,,,End User,id,,ReadWrite
+Read.End User.FollowedTopics,1207,Read,,,End User,FollowedTopics,,Read
+Read.End User.ClickedProfiles,1208,Read,,,End User,ClickedProfiles,,Read
+Read.End User.ViewedProfiles,1209,Read,,,End User,ViewedProfiles,,Read
+Display.End User.Recommendation,1210,Display,,,End User,Recommendation,,Read
+Delete.End User.AddressBookContacts,1211,Delete,,,End User,AddressBookContacts,,ReadWrite
+Read.End User.Mentions,1212,Read,,,End User,Mentions,,Read
+Read.End User.AddressBookContacts,1213,Read,,,End User,AddressBookContacts,,Read
+Update.End User.AddressBookContacts,1214,Update,,,End User,AddressBookContacts,,ReadWrite
+Create.End User.AddressBookContacts,1215,Create,,,End User,AddressBookContacts,,ReadWrite
+Display.End User.AddressBookContacts,1216,Display,,,End User,AddressBookContacts,,Read
+Update.End User.media,1217,Update,,,End User,media,,ReadWrite
+Delete.End User.media,1218,Delete,,,End User,media,,ReadWrite
+Create.AUTH.oauth-token,1219,Create,,,AUTH,oauth-token,,ReadWrite
+Delete.AUTH.oauth-token,1220,Delete,,,AUTH,oauth-token,,ReadWrite
+Update.AUTH.oauth-token,1221,Update,,,AUTH,oauth-token,,ReadWrite
+Update.AdsAccount.Media Key,1222,Update,,,AdsAccount,Media Key,,ReadWrite
+Create.AdsAccount.Media Key,1223,Create,,,AdsAccount,Media Key,,ReadWrite
+Update.AdsAccount.Media metadata,1224,Update,,,AdsAccount,Media metadata,,ReadWrite
+Read.AUTH.AuthToken,1225,Read,,,AUTH,AuthToken,,Read
+Create.AUTH.AuthToken,1226,Create,,,AUTH,AuthToken,,ReadWrite
+Delete.AUTH.AuthToken,1227,Delete,,,AUTH,AuthToken,,ReadWrite
+Delete.Device.id,1228,Delete,,,Device,id,,ReadWrite
+Delete.Device.Type,1229,Delete,,,Device,Type,,ReadWrite
+Display.End User.IsSuspended,1230,Display,,,End User,IsSuspended,,Read
+Read.AUTH.MFAData,1231,Read,,,AUTH,MFAData,,Read
+Delete.AUTH.MFAData,1232,Delete,,,AUTH,MFAData,,ReadWrite
+Read.End User.OtherInferredMetadata,1233,Read,,,End User,OtherInferredMetadata,,Read
+Display.End User.OtherInferredMetadata,1234,Display,,,End User,OtherInferredMetadata,,Read
+Update.End User.ip-address,1235,Update,,,End User,ip-address,,ReadWrite
+Update.ClientApp.id,1236,Update,,,ClientApp,id,,ReadWrite
+Create.ClientApp.CallbackUrl,1237,Create,,,ClientApp,CallbackUrl,,ReadWrite
+Delete.ClientApp.CallbackUrl,1238,Delete,,,ClientApp,CallbackUrl,,ReadWrite
+Display.Tweet.Status,1239,Display,,,Tweet,Status,,Read
+Display.End User.timestamp,1240,Display,,,End User,timestamp,,Read
+Display.End User.AccountState-Age-Metadata,1241,Display,,,End User,AccountState-Age-Metadata,,Read
+Display.ClientApp.id,1242,Display,,,ClientApp,id,,Read
+Display.AUTH.metadata,1243,Display,,,AUTH,metadata,,Read
+Display.End User.NonPrivacySettings,1244,Display,,,End User,NonPrivacySettings,,Read
+Display.End User.PrivacySettings,1245,Display,,,End User,PrivacySettings,,Read
+Display.Tweet.Count,1246,Display,,,Tweet,Count,,Read
+Display.End User.Count,1247,Display,,,End User,Count,,Read
+Display.Tweet.Impressions,1248,Display,,,Tweet,Impressions,,Read
+Display.List.Count,1249,Display,,,List,Count,,Read
+Display.Tweet.metadata.[count],1250,Display,,,Tweet,metadata,count,Read
+Display.CustomerServiceAgent.AgentActionLogs,1251,Display,,,CustomerServiceAgent,AgentActionLogs,,Read
+Display.End User.FollowRequests_Metadata,1253,Display,,,End User,FollowRequests_Metadata,,Read
+Display.End User.profile,1254,Display,,,End User,profile,,Read
+Display.Tweet.UrlAssociatedFlags,1255,Display,,,Tweet,UrlAssociatedFlags,,Read
+Display.End User.Location,1256,Display,,,End User,Location,,Read
+Display.End User.Carrier_Network,1257,Display,,,End User,Carrier_Network,,Read
+Display.Notification.settings,1258,Display,,,Notification,settings,,Read
+Display.ThirdParty.id,1259,Display,,,ThirdParty,id,,Read
+Display.Device.metadata,1260,Display,,,Device,metadata,,Read
+Display.End User.flag (IsProtected),1261,Display,,,End User,flag (IsProtected),,Read
+Display.End User.Gender,1262,Display,,,End User,Gender,,Read
+Display.End User.SafetyLabel,1263,Display,,,End User,SafetyLabel,,Read
+Display.End User.SearchQueries,1264,Display,,,End User,SearchQueries,,Read
+Display.End User.timezone,1265,Display,,,End User,timezone,,Read
+Display.Tweet.ID,1266,Display,,,Tweet,ID,,Read
+Display.End User.email,1267,Display,,,End User,email,,Email
+Display.End User.PhoneNumber,1268,Display,,,End User,PhoneNumber,,Read
+Display.tweet.metadata,1269,Display,,,tweet,metadata,,Read
+Update.End User.Location,1270,Update,,,End User,Location,,ReadWrite
+Update.End User.Biodata,1271,Update,,,End User,Biodata,,ReadWrite
+Update.End User.PrivacySettings,1272,Update,,,End User,PrivacySettings,,ReadWrite
+Display.End User.PhysicalAddress,1273,Display,,,End User,PhysicalAddress,,Read
+Display.End User.FinancialInfo,1274,Display,,,End User,FinancialInfo,,Read
+Display.Broadcast.ID,1275,Display,,,Broadcast,ID,,Read
+Display.Broadcast.metadata,1276,Display,,,Broadcast,metadata,,Read
+Display.Moment.ID,1277,Display,,,Moment,ID,,Read
+Display.Moment.metadata,1278,Display,,,Moment,metadata,,Read
+Display.Tweet.text,1279,Display,,,Tweet,text,,Read
+Display.End User.FollowedUsers,1280,Display,,,End User,FollowedUsers,,Read
+Display.Tweet.EngagementType,1281,Display,,,Tweet,EngagementType,,Read
+Create.Notification.settings,1282,Create,,,Notification,settings,,ReadWrite
+Update.Notification.settings,1283,Update,,,Notification,settings,,ReadWrite
+Delete.Notification.settings,1284,Delete,,,Notification,settings,,ReadWrite
+Display.Notification.ID,1285,Display,,,Notification,ID,,Read
+Display.tweet.geolocation,1286,Display,,,tweet,geolocation,,Read
+Read.AUTH.metadata,1287,Read,,,AUTH,metadata,,Read
+Display.Auth.KnownDeviceToken,1288,Display,,,Auth,KnownDeviceToken,,Read
+Display.Tweet.likes.[count],1289,Display,,,Tweet,likes,count,Read
+Display.Tweet.replies.[count],1290,Display,,,Tweet,replies,count,Read
+Display.Tweet.retweet.[count],1291,Display,,,Tweet,retweet,count,Read
+Display.Tweet.quote.[count],1292,Display,,,Tweet,quote,count,Read
+Delete.Tweet.text,1293,Delete,,,Tweet,text,,ReadWrite
+Delete.Tweet.Id,1294,Delete,,,Tweet,Id,,ReadWrite
+Read.ClientApp.Version,1295,Read,,,ClientApp,Version,,Read
+Read.End User.IsSuspended,1296,Read,,,End User,IsSuspended,,Read
+Read.End User.MutedWords,1297,Read,,,End User,MutedWords,,Read
+Read.End User.Click,1298,Read,,,End User,Click,,Read
+Read.End User.Count,1299,Read,,,End User,Count,,Read
+Read.End User.Impressions,1300,Read,,,End User,Impressions,,Read
+Read.InternalAnalysis.ExperimentId,1301,Read,,,InternalAnalysis,ExperimentId,,Read
+Read.InternalAnalysis.ExperimentMetadata,1302,Read,,,InternalAnalysis,ExperimentMetadata,,Read
+Read.InternalAnalysis.EventMetadataLogs,1303,Read,,,InternalAnalysis,EventMetadataLogs,,Read
+Read.InternalAnalysis.ExperimentName,1304,Read,,,InternalAnalysis,ExperimentName,,Read
+Read.Tweet.PrivateReply,1305,Read,,,Tweet,PrivateReply,,Read
+Read.Tweet.PrivateRetweets,1306,Read,,,Tweet,PrivateRetweets,,Read
+Read.Tweet.PrivateTweets,1307,Read,,,Tweet,PrivateTweets,,Read
+Read.Tweet.Count,1308,Read,,,Tweet,Count,,Read
+Read.Tweet.Impressions,1309,Read,,,Tweet,Impressions,,Read
+Read.Tweet.Metadata.[count],1310,Read,,,Tweet,Metadata,count,Read
+Read.Tweet.Click.[impression],1311,Read,,,Tweet,Click,impression,Read
+Read.Tweet.Like.[count],1312,Read,,,Tweet,Like,count,Read
+Read.Tweet.Like.[impression],1313,Read,,,Tweet,Like,impression,Read
+Read.Tweet.Reply.[count],1314,Read,,,Tweet,Reply,count,Read
+Read.Tweet.Reply.[impression],1315,Read,,,Tweet,Reply,impression,Read
+Read.End User.AbuseRanking,1316,Read,,,End User,AbuseRanking,,Read
+Read.End User.NonPrivacySettings,1317,Read,,,End User,NonPrivacySettings,,Read
+Read.End User.AccountState-Age-Metadata,1318,Read,,,End User,AccountState-Age-Metadata,,Read
+Read.End User.FollowedLists,1319,Read,,,End User,FollowedLists,,Read
+Read.Moment.Impressions,1320,Read,,,Moment,Impressions,,Read
+Read.Moment.Metadata,1321,Read,,,Moment,Metadata,,Read
+Read.Moment.Click,1322,Read,,,Moment,Click,,Read
+Display.Moment.Count,1323,Display,,,Moment,Count,,Read
+Display.Ads.TrendId,1324,Display,,,Ads,TrendId,,Read
+Display.Topic.id,1325,Display,,,Topic,id,,Read
+Read.List.Impressions,1328,Read,,,List,Impressions,,Read
+Update.End User.AccountState-Age-Metadata,1329,Update,,,End User,AccountState-Age-Metadata,,ReadWrite
+Update.End user.NonPrivacySettings,1330,Update,,,End user,NonPrivacySettings,,ReadWrite
+Display.Tweet.URL,1331,Display,,,Tweet,URL,,Read
+Display.End User.FollowedAccounts,1332,Display,,,End User,FollowedAccounts,,Read
+Display.End User.FollowingAccounts,1333,Display,,,End User,FollowingAccounts,,Read
+Display.End User.Biodata,1334,Display,,,End User,Biodata,,Read
+Display.Tweet.Pinned,1335,Display,,,Tweet,Pinned,,Read
+Display.List.ID,1336,Display,,,List,ID,,Read
+Update.End User.AuthorityDetails,1337,Update,,,End User,AuthorityDetails,,ReadWrite
+Read.End User.FinancialInfo,1338,Read,,,End User,FinancialInfo,,Read
+Display.Notification.Count,1339,Display,,,Notification,Count,,Read
+Display.DM.Count,1340,Display,,,DM,Count,,ReadWriteDM
+Read.Ads.UserSegmentation,1341,Read,,,Ads,UserSegmentation,,Read
+Read.End User.Age,1342,Read,,,End User,Age,,Read
+Read.End User.Gender,1343,Read,,,End User,Gender,,Read
+Display.List.metadata,1344,Display,,,List,metadata,,Read
+Read.ClientApp.Metrics,1345,Read,,,ClientApp,Metrics,,Read
+Read.ThirdParty.metadata,1346,Read,,,ThirdParty,metadata,,Read
+Read.Auth.GuestId,1347,Read,,,Auth,GuestId,,Read
+Read.End User.LoginChallenge,1348,Read,,,End User,LoginChallenge,,Read
+Read.End User.Password,1349,Read,,,End User,Password,,Read
+Read.Device.metadata,1351,Read,,,Device,metadata,,Read
+Read.Auth.HashedPassword,1352,Read,,,Auth,HashedPassword,,Read
+Display.Community.Count,1353,Display,,,Community,Count,,Read
+Display.Community.Id,1354,Display,,,Community,Id,,Read
+Display.Community.metadata,1355,Display,,,Community,metadata,,Read
+Display.Community.PublicCommunity,1356,Display,,,Community,PublicCommunity,,Read
+Display.Community.PublicModerators,1357,Display,,,Community,PublicModerators,,Read
+Display.Community.PublicMembers,1359,Display,,,Community,PublicMembers,,Read
+Display.Community.SafetyLabel,1360,Display,,,Community,SafetyLabel,,Read
+Read.BirdwatchNote.Id,1361,Read,,,BirdwatchNote,Id,,Read

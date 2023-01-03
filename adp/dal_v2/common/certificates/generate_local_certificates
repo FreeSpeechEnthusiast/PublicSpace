@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Use this script to generate local certificates for local dev deploys
+
+# Generate certificates using developer-cert-util
+# Documentation about this tool: https://docbird.twitter.biz/kite/developer-cert-util.html
+# the generated certificates will be available in ~/.s2s/local/devel/{{job}}/{{role}}
+
+generate_for_local_app() {
+ echo "Generating local certificates for $1"
+ developer-cert-util --local --job $1
+ source="/Users/$USER/.s2s/local/devel/$1/$USER"
+ echo "Certificates issued and available in $source"
+ destination="/var/lib/tss/keys/s2s/local_cluster/devel/$1"
+ echo "Creating directory $destination/$USER"
+ mkdir -p "$destination/$USER"
+ echo "Moving the certificates from $source to $destination"
+ mv -f -v "$source" $destination
+}
+
+generate_for_local_app "statebird-v2"
+generate_for_local_app "eagleeye-http-server"
+generate_for_local_app "dal"
+generate_for_local_app "dal-graph-server"

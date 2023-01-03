@@ -1,0 +1,9 @@
+owners:
+  - authplatform:ldap
+watchers:
+  - auth-platform@twitter.com
+fileOwners:
+  policykeeper.workflow.json:
+  - authplatform:ldap
+  policykeeper-redcurve.workflow.json:
+  - authplatform:ldap

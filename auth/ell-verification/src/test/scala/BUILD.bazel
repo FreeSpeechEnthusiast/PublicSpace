@@ -1,0 +1,17 @@
+junit_tests(
+    sources = ["**/*.scala"],
+    compiler_option_sets = ["fatal_warnings"],
+    runtime_platform = "java11",
+    tags = ["bazel-compatible"],
+    dependencies = [
+        "3rdparty/jvm/ch/qos/logback:logback-classic",
+        "3rdparty/jvm/com/google/inject:guice",
+        "3rdparty/jvm/org/scalatestplus:junit",
+        "3rdparty/jvm/org/slf4j:slf4j-api",
+        "auth/ell-verification/src/main/scala/com/twitter/auth/ellverification",
+        "auth/ell-verification/src/test/resources",
+        "finatra-internal/mtls/src/test/scala:test-deps",
+        "finatra/inject/inject-app/src/test/scala/com/twitter/inject/app",
+        "finatra/inject/inject-core/src/test/scala:test-deps",
+    ],
+)

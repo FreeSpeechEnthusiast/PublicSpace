@@ -1,0 +1,4 @@
+owners:
+  - authplatform:ldap
+watchers:
+  - auth-platform@twitter.com

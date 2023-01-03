@@ -1,0 +1,18 @@
+load_generator: "com.twitter.auth.policykeeper.loadtest.PolicyKeeperLoadTest"
+cached_seconds: 3
+rps: 100
+duration:
+  time: 5 # minutes
+feeder:
+  feed_source:
+    custom: {}
+  poll_size: 100
+transport:
+  destinations:
+    - victim: "/srv#/staging/smf1/policykeeper/policykeeper"
+  scheme:
+    thrift:
+      num_clients: 10
+      enable_tls: true
+      acquisition_timeout: 50
+      request_timeout: 150

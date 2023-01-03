@@ -1,0 +1,40 @@
+__global__:
+  namespace: statebird_rasvelg
+
+__default__:
+  role: statebird
+  class: HadoopRasvelg
+  contact: adp-team@twitter.com
+  on_failure_email: adp-team@twitter.com
+  disable_success_email: true
+
+  # aurora config
+  cron_collision_policy: CANCEL_NEW
+  cluster: atla
+  disk_mb: 1024
+  ram_mb: 1024
+  num_cpus: 1
+  hadoop_config: /etc/hadoop/hadoop-conf-proc-atla
+  mesos_is_prod: true
+
+  pants_target: bundle src/java/com/twitter/twadoop/analytics/rasvelg:rasvelg_binary
+  bundle: rasvelg_binary.tar.gz  # output of pants in the science/dist/ directory
+  mainjar: rasvelg_binary.jar    # specify the main jar to run in the bundle
+  use_my_mainjar: true           # actually use the 'mainjar' param
+
+  db_config: adp/capesos/rasvelg/statebird/db.yml
+  rasvelg_config: adp/capesos/rasvelg/statebird/rasvelg.yml
+  env: prod
+
+rasvelg_statebird_batch_run_cleanup:
+  rasvelg_task_config: adp/capesos/rasvelg/statebird/rasvelg_statebird_batch_run_cleanup.yml
+  cron_schedule: 14,29,44 * * * *
+
+rasvelg_dal_keyspace_overflow_alert:
+  role: dal
+  rasvelg_task_config: adp/capesos/rasvelg/statebird/rasvelg_dal_keyspace_overflow_alert.yml
+  cron_schedule: "0 10 */1 * *"
+
+rasvelg_statebird_keyspace_overflow_alert:
+  rasvelg_task_config: adp/capesos/rasvelg/statebird/rasvelg_statebird_keyspace_overflow_alert.yml
+  cron_schedule: "0 10 */1 * *"

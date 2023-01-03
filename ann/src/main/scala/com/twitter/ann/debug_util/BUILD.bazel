@@ -1,0 +1,12 @@
+scala_library(
+    sources = ["*.scala"],
+    compiler_option_sets = ["fatal_warnings"],
+    dependencies = [
+        "ann/src/main/scala/com/twitter/ann/featurestore",
+        "ann/src/main/scala/com/twitter/ann/hnsw",
+        "src/scala/com/twitter/cortex/ml/embeddings/common:injections",
+        "src/scala/com/twitter/ml/featurestore/catalog/entities/core",
+        "src/scala/com/twitter/ml/featurestore/catalog/features/embeddings",
+        "src/scala/com/twitter/ml/featurestore/lib",
+    ],
+)

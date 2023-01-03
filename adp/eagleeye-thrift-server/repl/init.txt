@@ -1,0 +1,45 @@
+import com.twitter.eagleeye.thriftscala._
+import com.twitter.finagle.mtls.authentication.ServiceIdentifier
+import com.twitter.finagle.mtls.client.MtlsStackClient._
+import com.twitter.statebird.v2.thriftscala._
+import com.twitter.finagle.ThriftMux
+import com.twitter.util.{Await, Time}
+
+java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"))
+
+sealed trait ClientFactory
+
+val userName = System.getProperty("user.name")
+val serviceIdentifier = ServiceIdentifier(
+  role = userName,
+  service = "eagleeye-thrift-server-repl",
+  environment = "devel",
+  zone = "local"
+)
+
+object LocalProdClient extends ClientFactory {
+  def apply() =
+    ThriftMux.client
+      .withMutualTls(serviceIdentifier)
+      .build[EagleEye.MethodPerEndpoint]("replUser=/cluster/local/eagleeye-app/prod/eagleeye-thrift-server")
+}
+
+object LocalStagingClient extends ClientFactory {
+  def apply() =
+    ThriftMux.client
+      .withMutualTls(serviceIdentifier)
+      .build[EagleEye.MethodPerEndpoint]("replUser=/cluster/local/eagleeye-staging/staging/eagleeye-thrift-server")
+}
+
+// Initialize wily, to connect to production service names
+com.twitter.server.Init.apply()
+
+// Example:
+// val client = LocalStagingClient()
+// Await.result(client.getDataSetProperties(DALLogicalDatasetId(401), Set("is_verified", "thrift_class", "summary").map(DataSetPropertyName(_))))
+// Await.result(client.getDisplayInformationForDALLogicalDataset(DALLogicalDatasetId(401)))
+
+// Or to use the Client wrapper:
+// NB: these do not use /cluster/local addressing so may query the service in a different DC
+// val prodClient: EagleEyeClient = ProductionEagleEyeClient()
+// val stagingClient: EagleEyeClient = StagingEagleEyeClient()

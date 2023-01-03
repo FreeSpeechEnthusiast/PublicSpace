@@ -1,0 +1,73 @@
+<configuration>
+    <shutdownHook class="ch.qos.logback.core.hook.DelayingShutdownHook"/>
+
+    <!-- ===================================================== -->
+    <!-- Service Config -->
+    <!-- ===================================================== -->
+    <property name="DEFAULT_SERVICE_PATTERN"
+              value="[%-16X{traceId:--}] %-12X{clientId:--} %-16X{method:--} %-25logger{0} %msg"/>
+
+    <!-- ===================================================== -->
+    <!-- Common Config -->
+    <!-- ===================================================== -->
+
+    <!-- JUL/JDK14 to Logback bridge -->
+    <contextListener class="ch.qos.logback.classic.jul.LevelChangePropagator">
+        <resetJUL>true</resetJUL>
+    </contextListener>
+
+    <!-- Output to STDOUT for local development -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%date %.-3level \(%thread\) ${DEFAULT_SERVICE_PATTERN}%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- ===================================================== -->
+    <!-- Primary Async Appenders -->
+    <!-- ===================================================== -->
+
+    <property name="async_queue_size" value="${queue.size:-50000}"/>
+    <property name="async_max_flush_time" value="${max.flush.time:-0}"/>
+
+    <appender name="ASYNC-SERVICE" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>${async_queue_size}</queueSize>
+        <maxFlushTime>${async_max_flush_time}</maxFlushTime>
+        <appender-ref ref="STDOUT"/>
+    </appender>
+
+    <!-- ===================================================== -->
+    <!-- Package Config -->
+    <!-- ===================================================== -->
+
+    <!-- Per-Package Config -->
+    <logger name="com.twitter" level="info"/>
+    <logger name="com.twitter.wilyns" level="warn"/>
+    <logger name="com.twitter.finagle.mux" level="warn"/>
+    <logger name="com.twitter.finagle.serverset2" level="warn"/>
+    <logger name="com.twitter.logging.ScribeHandler" level="warn"/>
+    <logger name="com.twitter.scrooge.frontend.Importer$" level="error"/>
+    <logger name="com.twitter.zookeeper.client.internal" level="warn"/>
+
+    <!-- From DALLoggingConfigurator -->
+    <logger name="com.twitter.distributedlog.client" level="warn"/>
+    <logger name="com.twitter.finagle" level="warn"/>
+    <logger name="org.apache.zookeeper" level="warn"/>
+    <logger name="ZkSession" level="info"/>
+    <logger name="LoadService" level="info"/>
+
+    <!-- From SlickLoggingConfigurable -->
+    <logger name="slick" level="info"/>
+    <logger name="com.mchange.v2.resourcepool.BasicResourcePool" level="info"/>
+    <logger name="com.mchange.v2.c3p0.impl.NewProxyPreparedStatement" level="warn"/>
+    <logger name="slick.util.SlickLogger" level="debug"/>
+    <logger name="slick.jdbc.JdbcBackend.statement" level="debug"/>
+    <logger name="slick.jdbc.JdbcBackend.benchmark" level="debug"/>
+    <logger name="slick.util.AsyncExecutor" level="debug"/>
+
+    <!-- Root Config -->
+    <root level="${log_level:-INFO}">
+        <appender-ref ref="ASYNC-SERVICE"/>
+    </root>
+
+</configuration>

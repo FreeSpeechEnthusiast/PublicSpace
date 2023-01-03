@@ -1,0 +1,12 @@
+scala_library(
+    name = "repl-deps",
+    dependencies = [
+        "eagleeye/eagleeye-http-server/src/main/scala/com/twitter/eagleeye/http_server/views",
+        "src/java/com/twitter/twadoop/batch/model",
+        "src/scala/com/twitter/dal/client",
+        "src/scala/com/twitter/dal/etl/common/dmo",
+        "src/scala/com/twitter/dal/etl/common/kite_thrift",
+        "src/scala/com/twitter/dal/server",
+        "src/scala/com/twitter/twadoop/batch/statebird",
+    ],
+)

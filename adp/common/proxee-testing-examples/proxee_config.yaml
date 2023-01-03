@@ -1,0 +1,64 @@
+admin:
+  port: 9990
+
+routers:
+- protocol: thrift
+  label: statebird
+  ip: 0.0.0.0 # listen on all ipv4 ifaces
+  port: 9991
+  identifier:
+    kind: com.twitter.proxee.StaticIdentifier
+    route: /cluster/local/statebird-staging/staging/statebird-v2
+- protocol: thrift
+  label: dal
+  ip: 0.0.0.0
+  port: 9993
+  identifier:
+    kind: com.twitter.proxee.StaticIdentifier
+    route: /cluster/local/dal-staging/staging/dal
+- protocol: thrift
+  label: dal_read_only
+  ip: 0.0.0.0
+  port: 9999
+  identifier:
+    kind: com.twitter.proxee.StaticIdentifier
+    route: /cluster/local/dal-staging/staging/dal_read_only
+- protocol: thrift
+  label: statebird-with-auth
+  ip: 0.0.0.0 # listen on all ipv4 ifaces
+  port: 9995
+  identifier:
+    kind: com.twitter.proxee.StaticIdentifier
+    route: /cluster/local/statebird-staging/staging/statebird-v2
+  s2sAuth:
+    serviceIdentifier: twtr:svc:${USER}:proxee-testing-example:devel:local
+    server:
+      enabled: true
+    client:
+      enabled: true
+- protocol: thrift
+  label: dal-with-auth
+  ip: 0.0.0.0
+  port: 9997
+  identifier:
+    kind: com.twitter.proxee.StaticIdentifier
+    route: /cluster/local/dal-staging/staging/dal
+  s2sAuth:
+    serviceIdentifier: twtr:svc:${USER}:proxee-testing-example:devel:local
+    server:
+      enabled: true
+    client:
+      enabled: true
+- protocol: thrift
+  label: dal_read_only-with-auth
+  ip: 0.0.0.0
+  port: 9911
+  identifier:
+    kind: com.twitter.proxee.StaticIdentifier
+    route: /cluster/local/dal-staging/staging/dal_read_only
+  s2sAuth:
+    serviceIdentifier: twtr:svc:${USER}:proxee-testing-example:devel:local
+    server:
+      enabled: true
+    client:
+      enabled: true

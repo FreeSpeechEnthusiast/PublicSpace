@@ -1,0 +1,23 @@
+junit_tests(
+    sources = ["*.scala"],
+    compiler_option_sets = ["fatal_warnings"],
+    runtime_platform = "java11",
+    tags = [
+        "bazel-compatible",
+    ],
+    dependencies = [
+        "3rdparty/jvm/com/fasterxml/jackson/core:jackson-annotations",
+        "3rdparty/jvm/com/fasterxml/jackson/core:jackson-core",
+        "3rdparty/jvm/com/fasterxml/jackson/core:jackson-databind",
+        "3rdparty/jvm/com/fasterxml/jackson/datatype:jackson-datatype-jdk8",
+        "3rdparty/jvm/junit",
+        "3rdparty/jvm/org/scalatest",
+        "3rdparty/jvm/org/scalatestplus:junit",
+        "auth/pasetoheaders/src/main/java/com/twitter/auth/pasetoheaders/encryption",
+        "auth/pasetoheaders/src/main/java/com/twitter/auth/pasetoheaders/models",
+        "auth/pasetoheaders/src/main/scala/com/twitter/auth/pasetoheaders/finagle",
+        "auth/pasetoheaders/src/main/scala/com/twitter/auth/pasetoheaders/javahelpers",
+        "auth/pasetoheaders/src/main/scala/com/twitter/auth/pasetoheaders/passport",
+        "auth/pasetoheaders/src/test/resources",
+    ],
+)

@@ -1,0 +1,103 @@
+# Description
+
+This pipeline uses hnsw and scalding to create an hnsw index based on producers embeddings, which
+it then uses to construct lists of producer suggestions for each user.
+
+## Step 1 - set the following environment variables
+e.g.
+
+export ROLE=cortex
+export NAME=example
+export INDEX_BUILDER_JOB_NAME=ann_index_builder
+export PRODUCER_EMBEDDINGS_PATH=/user/cortex/embeddings/official_examples/user/knn_example/producer_embeddings
+export CONSUMER_EMBEDDINGS_PATH=/user/cortex/embeddings/official_examples/user/knn_example/consumer_embeddings
+export EMBEDDING_DIM=300
+export ENTITY_KIND=user
+export METRIC=InnerProduct
+export OUTPUT_TABLE_PATH=/user/cortex/embeddings/official_examples/user/knn_example/output_table
+export INDEX_OUTPUT_PATH=/user/cortex/embeddings/official_examples/user/knn_example/index_output
+export NEIGHBOURS=20
+export PRODUCER_EMBEDDING_FORMAT=tab
+export CONSUMER_EMBEDDING_FORMAT=tab
+
+## Step 2 - create the hnsw index
+./bazel bundle ann/src/main/scala/com/twitter/ann/scalding/offline/indexbuilder:indexbuilder-deploy \
+    --bundle-jvm-archive=zip
+
+packer add_version --cluster=smf1 $ROLE $INDEX_BUILDER_JOB_NAME dist/indexbuilder-deploy.zip
+
+aurora job create smf1/$ROLE/devel/$INDEX_BUILDER_JOB_NAME ann/src/main/aurora/index_builder/aurora_builder.aurora \
+  --bind=profile.name=$INDEX_BUILDER_JOB_NAME \
+  --bind=profile.role=$ROLE \
+  --bind=profile.algo=hnsw \
+  --bind=profile.embedding_dim=$EMBEDDING_DIM \
+  --bind=profile.input_path=$PRODUCER_EMBEDDINGS_PATH \
+  --bind=profile.output_path=hdfs://$INDEX_OUTPUT_PATH \
+  --bind=profile.entity_kind=$ENTITY_KIND \
+  --bind=profile.embedding_format=$PRODUCER_EMBEDDING_FORMAT \
+  --bind=profile.metric=$METRIC \
+  --bind=profile.concurrency_level=24
+
+## Step 3 - create the mapping table. If debug_output_path is supplied, this job also writes each consumer's nearest neighbors and follow graph to a text file for sanity check analyses
+./bazel bundle ann/src/main/scala/com/twitter/ann/scalding/offline:ann-offline-deploy
+
+oscar hdfs \
+  --screen --tee log.txt \
+  --hadoop-client-memory 6000 \
+  --hadoop-properties "yarn.app.mapreduce.am.resource.mb=6000;yarn.app.mapreduce.am.command-opts='-Xmx7500m';mapreduce.map.memory.mb=7500;mapreduce.reduce.java.opts='-Xmx6000m';mapreduce.reduce.memory.mb=7500;mapred.task.timeout=36000000;" \
+  --bundle ann-offline-deploy \
+  --min-split-size 568435456 \
+  --host hadoopnest1.smf1.twitter.com \
+  --tool com.twitter.ann.scalding.offline.KnnOfflineJob -- \
+  --neighbors $NEIGHBOURS \
+  --consumer.embedding_path $CONSUMER_EMBEDDINGS_PATH \
+  --consumer.embedding_format $CONSUMER_EMBEDDING_FORMAT \
+  --knn_directory  $INDEX_OUTPUT_PATH \
+  --output_path $OUTPUT_TABLE_PATH \
+  --reducers 10000 \
+  --dimension $EMBEDDING_DIM \
+  --metric $METRIC \
+  --producer_entity_kind $ENTITY_KIND \
+  --date 2018-04-01 2018-04-25
+
+
+ ####### For generating truth sets for K nearest neigbour for entity embeddings
+
+$ ./bazel bundle ann/src/main/scala/com/twitter/ann/scalding/offline:ann-offline-deploy
+$ export QUERY_EMBEDDINGS_PATH=/user/cortex-mlx/official_examples/ann/non_pii_random_user_embeddings_tab_format
+$ export INDEX_EMBEDDINGS_PATH=/user/cortex-mlx/official_examples/ann/non_pii_random_user_embeddings_tab_format
+$ export TRUTH_SET_PATH=/user/$USER/truth_set
+$ export INDEX_SET_PATH=/user/$USER/index_set
+$ export QUERY_SET_PATH=/user/$USER/query_set
+$ export METRIC=InnerProduct
+$ export QUERY_ENTITY_KIND=user
+$ export INDEX_ENTITY_KIND=user
+$ export NEIGHBOURS=10
+
+$ oscar hdfs \
+  --screen --tee log.txt \
+  --hadoop-client-memory 6000 \
+  --hadoop-properties "yarn.app.mapreduce.am.resource.mb=6000;yarn.app.mapreduce.am.command-opts='-Xmx7500m';mapreduce.map.memory.mb=7500;mapreduce.reduce.java.opts='-Xmx6000m';mapreduce.reduce.memory.mb=7500;mapred.task.timeout=36000000;" \
+  --bundle ann-offline-deploy \
+  --min-split-size 284217728 \
+  --host hadoopnest1.smf1.twitter.com \
+  --tool com.twitter.ann.scalding.offline.KnnTruthSetGenerator -- \
+  --neighbors $NEIGHBOURS \
+  --metric $METRIC \
+  --query_entity_kind $QUERY_ENTITY_KIND \
+  --query.embedding_path $QUERY_EMBEDDINGS_PATH \
+  --query.embedding_format tab \
+  --query_sample_percent 50.0 \
+  --index_entity_kind $INDEX_ENTITY_KIND \
+  --index.embedding_path $INDEX_EMBEDDINGS_PATH \
+  --index.embedding_format tab \
+  --index_sample_percent 90.0 \
+  --query_set_output.embedding_path $QUERY_SET_PATH \
+  --query_set_output.embedding_format tab \
+  --index_set_output.embedding_path $INDEX_SET_PATH \
+  --index_set_output.embedding_format tab \
+  --truth_set_output_path $TRUTH_SET_PATH \
+  --reducers 100
+
+It will sample 90% of index set embeddings and 50% of query embeddings from total and then it will generate 3 datasets from the same that are index set, query set and true nearest neighbours from query to index in the tab format.
+Note: The reason for using high sample percent is due to the fact the sample embeddings dataset is small. For real use cases query set should be really small.

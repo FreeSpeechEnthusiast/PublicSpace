@@ -1,0 +1,12 @@
+junit_tests(
+    sources = ["*.scala"],
+    compiler_option_sets = ["fatal_warnings"],
+    runtime_platform = "java11",
+    tags = ["bazel-compatible"],
+    dependencies = [
+        "3rdparty/jvm/org/mockito:mockito-core",
+        "3rdparty/jvm/org/scalatestplus:junit",
+        "3rdparty/jvm/org/scalatestplus:mockito",
+        "ann/src/main/scala/com/twitter/ann/brute_force",
+    ],
+)

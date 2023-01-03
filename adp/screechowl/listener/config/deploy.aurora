@@ -1,0 +1,111 @@
+import os
+
+class Profile(Struct):
+  role              = Default(String, os.environ['USER'])
+  config            = Required(String)
+  environment       = Default(String, "devel")
+  name              = Default(String, "screech-owl-listener")
+  package           = Default(String, "{{name}}")
+  bundle_version    = Default(String, "latest")
+  jar               = Default(String, "{{name}}.jar")
+  splunk_app_id     = Default(String, "{{role}}")
+  splunk_tag        = Default(String, "{{cluster}}/{{role}}/{{environment}}/{{name}}")
+
+resources = Resources(cpu = 2, ram = 8*GB, disk = 8*GB)
+
+stats = Stats(library="metrics", port="admin")
+
+#heap dump configs
+heapdumpweb_installer = Packer.install('heap_dumper_web', role='heapdumper', version='latest')
+
+heapdumpweb_process = Process(
+  name='heapdumpweb_process',
+  cmdline='./heap_dumper_web.pex -f ./%s-jvmprocess.pid -s ./.healthchecksnooze --port {{thermos.ports[heapdump]}}' % '{{profile.name}}',
+  ephemeral=True
+)
+
+run = JVMProcess(
+  name = '{{profile.name}}',
+  jvm = Java11(
+     extra_jvm_flags = ' '.join([
+        "-Denvironment={{profile.environment}}",
+        "-Dlog.service.output={{name}}.log",
+        "-Djava.security.auth.login.config=config/jaas.conf",
+        "-Dlog.lens.index={{profile.splunk_app_id}}",
+        "-Dlog.lens.tag={{profile.splunk_tag}}",
+        ]),
+     ),
+  arguments = ' '.join([
+    "-jar {{profile.jar}}",
+    "-admin.port=:{{thermos.ports[admin]}}",
+    "-service.configClass={{profile.config}}",
+    "-serviceIdentifier.cluster={{cluster}}",
+    "-serviceIdentifier.role={{profile.role}}",
+    "-serviceIdentifier.service={{profile.name}}",
+    "-serviceIdentifier.environment={{profile.environment}}",
+    "-com.twitter.eventbus.client.zoneName={{cluster}}",
+    "-com.twitter.eventbus.client.EnableKafkaSaslTls=true"
+  ]) + " com.twitter.screechowl.listener.ScreechOwlListener",
+  resources = resources
+)
+
+# Creates JAAS config for Kafka => EB migration. This step follows after creating keytabs in Kite
+# described here https://confluence.twitter.biz/pages/viewpage.action?pageId=107102665
+create_jaas_config = Process(
+    name           = 'create_jaas_config',
+    cmdline        = """
+    mkdir -p config
+    echo "KafkaClient {
+      com.sun.security.auth.module.Krb5LoginModule required
+      principal=\\"{{profile.role}}@TWITTER.BIZ\\"
+      useKeyTab=true
+      storeKey=true
+      keyTab=\\"/var/lib/tss/keys/fluffy/keytabs/client/{{profile.role}}.keytab\\"
+      doNotPrompt=true;
+    };" >> config/jaas.conf
+    """
+)
+
+install = Packer.install(
+  name = '{{profile.package}}',
+  role = '{{profile.role}}',
+  version = '{{profile.bundle_version}}'
+)
+
+task = Task(
+  name = "install_and_run",
+  processes = [stats, install, create_jaas_config, run, heapdumpweb_installer, heapdumpweb_process],
+  resources = resources,
+  constraints = order(install, create_jaas_config, run) + order(heapdumpweb_installer, heapdumpweb_process)
+)
+
+service = Service(
+  role = '{{profile.role}}',
+  environment = '{{profile.environment}}',
+  name = '{{profile.name}}',
+  contact = 'adp-team@twitter.com',
+  announce = Announcer(primary_port='admin', portmap={'aurora': 'admin', 'health': 'admin'}),
+  cluster = '{{profile.cluster}}',
+  update_config = UpdateConfig( watch_secs = 0, batch_size = 1),
+  health_check_config = HealthCheckConfig(
+      initial_interval_secs = 80,
+      interval_secs = 10,
+      timeout_secs = 15,
+      max_consecutive_failures = 4,
+      min_consecutive_successes = 2),
+  task = task,
+  constraints = {
+    'os': 'centos7',
+  },
+)
+
+Devel   = Profile()
+Staging = Profile(config = "com.twitter.screechowl.listener.config.StagingConfig", role = "screechowl-staging", environment = "staging")
+Prod    = Profile(config = "com.twitter.screechowl.listener.config.ProdConfig",    role = "screechowl", environment = "prod")
+
+jobs = []
+dcs = ["smf1", "atla", "pdxa"]
+
+jobs += [service(cluster = dc).bind(profile = Devel) for dc in dcs]
+jobs += [service(cluster = dc).bind(profile = Staging) for dc in dcs]
+jobs += [service(cluster = dc, tier = 'preferred').bind(profile = Prod) for dc in dcs]

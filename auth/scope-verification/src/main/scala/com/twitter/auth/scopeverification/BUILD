@@ -1,0 +1,22 @@
+scala_library(
+    sources = ["**/*.scala"],
+    compiler_option_sets = ["fatal_warnings"],
+    tags = ["bazel-compatible"],
+    dependencies = [
+        "auth/authorization-scopes/src/main/scala/com/twitter/auth/authorizationscope",
+        "auth/authorization/src/main/scala/com/twitter/auth/authorization",
+        "auth/data-permissions/src/main/scala/com/twitter/auth/policy",
+        "auth/scope-verification/src/main/resources",
+        "configbus/client/src/main/scala/com/twitter/configbus/client",
+        "configbus/subscriber",
+        "finagle/finagle-core/src/main",
+        "finagle/finagle-stats",
+        "finatra-internal/mtls/src/main/scala",
+        "finatra/inject/inject-app/src/main/scala",
+        "finatra/inject/inject-modules/src/main/scala",
+        "finatra/inject/inject-modules/src/main/scala/com/twitter/inject/modules",
+        "tfe/core/src/main/scala/com/twitter/tfe/core/decider",
+        "tfe/core/src/main/scala/com/twitter/tfe/core/host_aliases",
+        "tfe/core/src/main/scala/com/twitter/tfe/core/routingng",
+    ],
+)

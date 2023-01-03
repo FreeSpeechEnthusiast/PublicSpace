@@ -1,0 +1,151 @@
+<configuration>
+    <shutdownHook class="ch.qos.logback.core.hook.DelayingShutdownHook"/>
+
+    <!-- ===================================================== -->
+    <!-- Service Config -->
+    <!-- ===================================================== -->
+    <property name="DEFAULT_SERVICE_PATTERN"
+              value="[%-16X{traceId:--}] %-12X{clientId:--} %-16X{method:--} %-25logger{0} %msg"/>
+
+    <!-- ===================================================== -->
+    <!-- Common Config -->
+    <!-- ===================================================== -->
+
+    <!-- JUL/JDK14 to Logback bridge -->
+    <contextListener class="ch.qos.logback.classic.jul.LevelChangePropagator">
+        <resetJUL>true</resetJUL>
+    </contextListener>
+
+    <!-- Service Log.
+         The log creates a new file for a given day every 250MB, and keeps a maximum of 5 days of logs.
+         The total number of log files varies depending on the size of each days' logs.
+    -->
+    <appender name="SERVICE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${log.service.output:-service.log}</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${log.service.output:-service.log}.%d.%i.gz</fileNamePattern>
+            <timeBasedFileNamingAndTriggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
+                <!-- Create a new file for a given day's log every 250MB -->
+                <maxFileSize>250MB</maxFileSize>
+            </timeBasedFileNamingAndTriggeringPolicy>
+            <!-- Keep 5 days of logs on disk -->
+            <maxHistory>5</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%date %.-3level \(%thread\) ${DEFAULT_SERVICE_PATTERN}%n</pattern>
+        </encoder>
+    </appender>
+
+    <!--
+      Splunk/LoglensAppender settings were written using the docs here:
+      http://go/distributedlogging#logback
+      And the example at:
+      finatra-internal/examples/sample-api/src/main/resources/logback.xml
+
+      <mdcAdditionalContext/> is used to opt into support for Mapped Diagnostic Context (MDC)
+      integration, which enables you to use the key-value MDC API provided by SLF4J to pass
+      additional context from an application thread through Logback into each log message to Splunk.
+      For info about the API see: http://logback.qos.ch/manual/mdc.html
+
+      <category/> is optional. It's the Scribe category name for logging and should always be
+      'loglens' for things to work correctly. There's no reason at this time to override it here.
+
+      <index/> is optional but is surfaced in Splunk as the `app_id` field. It's "the easiest way to
+      filter the application-logs index down to just your service." This value should be the name of
+      our service and environment since role is not specific enough. For example, index "dal_prod"
+      lets you efficiently search in Splunk for "index=application-logs app_id=dal_prod". (You can
+      get the same search results with "index=application-logs loglens_index=dal_prod" but
+      `loglens_index` is not indexed & not as fast as `app_id`, so avoid it.) Note that "-" is
+      translated to "_" e.g. name=dal-<username> and env=devel yields "app_id=dal_<username>_devel".
+      https://docbird.twitter.biz/getting-started-with-splunk/search_command.html#app-id-field
+
+      <tag/> is required and is commonly the mesos job key, e.g. "smf1/dal/prod/dal". This is
+      surfaced in Splunk as the `label` field, for example:
+      "index=application-logs app_id=dal_prod label=smf1/dal/prod/dal"
+      "index=application-logs app_id=dal_dmarwick_devel label=smf1/dal-staging/devel/dal-dmarwick"
+    -->
+    <!-- LogLens -->
+    <appender name="LOGLENS" class="com.twitter.loglens.logback.LoglensAppender">
+        <mdcAdditionalContext>true</mdcAdditionalContext>
+        <index>${log.lens.index}</index>
+        <tag>${log.lens.tag}</tag>
+        <encoder>
+            <pattern>%date %.-3level \(%thread\) %-25logger{0} %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Udlm Audit Logging -->
+    <appender name="UDLM-LOGLENS" class="com.twitter.loglens.logback.LoglensAppender">
+        <mdcAdditionalContext>true</mdcAdditionalContext>
+        <index>dal_udlm_service</index>
+        <tag>${log.lens.tag}</tag>
+        <encoder>
+            <pattern>%date %.-3level \(%thread\) %-25logger{0} %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- ===================================================== -->
+    <!-- Primary Async Appenders -->
+    <!-- ===================================================== -->
+
+    <property name="async_queue_size" value="${queue.size:-50000}"/>
+    <property name="async_max_flush_time" value="${max.flush.time:-0}"/>
+
+    <appender name="ASYNC-SERVICE" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>${async_queue_size}</queueSize>
+        <maxFlushTime>${async_max_flush_time}</maxFlushTime>
+        <appender-ref ref="SERVICE"/>
+    </appender>
+
+    <appender name="ASYNC-LOGLENS" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>${async_queue_size}</queueSize>
+        <maxFlushTime>${async_max_flush_time}</maxFlushTime>
+        <appender-ref ref="LOGLENS"/>
+    </appender>
+
+    <appender name="ASYNC-UDLM-LOGLENS" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>${async_queue_size}</queueSize>
+        <maxFlushTime>${async_max_flush_time}</maxFlushTime>
+        <appender-ref ref="UDLM-LOGLENS"/>
+    </appender>
+
+    <!-- ===================================================== -->
+    <!-- Package Config -->
+    <!-- ===================================================== -->
+
+    <!-- Per-Package Config -->
+    <logger name="com.twitter" level="info"/>
+    <logger name="com.twitter.wilyns" level="warn"/>
+    <logger name="com.twitter.finagle.mux" level="warn"/>
+    <logger name="com.twitter.finagle.serverset2" level="warn"/>
+    <logger name="com.twitter.logging.ScribeHandler" level="warn"/>
+    <logger name="com.twitter.scrooge.frontend.Importer$" level="error"/>
+    <logger name="com.twitter.zookeeper.client.internal" level="warn"/>
+
+    <!-- From DALLoggingConfigurator -->
+    <logger name="com.twitter.distributedlog.client" level="warn"/>
+    <logger name="com.twitter.finagle" level="warn"/>
+    <logger name="org.apache.zookeeper" level="warn"/>
+    <logger name="ZkSession" level="info"/>
+    <logger name="LoadService" level="info"/>
+
+    <!-- From SlickLoggingConfigurable -->
+    <logger name="slick" level="info"/>
+    <logger name="com.mchange.v2.resourcepool.BasicResourcePool" level="info"/>
+    <logger name="com.mchange.v2.c3p0.impl.NewProxyPreparedStatement" level="warn"/>
+    <logger name="slick.util.SlickLogger" level="debug"/>
+    <logger name="slick.jdbc.JdbcBackend.statement" level="debug"/>
+    <logger name="slick.jdbc.JdbcBackend.benchmark" level="debug"/>
+    <logger name="slick.util.AsyncExecutor" level="debug"/>
+
+    <logger name="udlm_audit_logs" level="info" additivity="false">
+        <appender-ref ref="ASYNC-UDLM-LOGLENS"/>
+    </logger>
+
+    <!-- Root Config -->
+    <root level="${log_level:-INFO}">
+        <appender-ref ref="ASYNC-SERVICE"/>
+        <appender-ref ref="ASYNC-LOGLENS"/>
+    </root>
+
+</configuration>

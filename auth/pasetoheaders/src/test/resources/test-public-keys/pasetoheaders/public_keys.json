@@ -1,0 +1,10 @@
+{
+  "keys": [
+    {
+      "key_issuer": "unittest",
+      "key_version": 1,
+      "key_data": "31c273c193af94a96d3a8db254cbc5aac81e881e098746d549caf2dea819ed81",
+      "key_environment": "local"
+    }
+  ]
+}

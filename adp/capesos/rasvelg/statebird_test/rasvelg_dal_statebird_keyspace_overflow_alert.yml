@@ -1,0 +1,74 @@
+---
+__STATE__:
+  first_time: 2021-03-20 00:00:00
+
+init:
+  - executor: com.twitter.twadoop.analytics.rasvelg.executors.AnalyticsBatchExecutor
+    bind_keys:
+      - batch_id
+      - data_start_time java.sql.Date
+      - data_end_time java.sql.Date
+    params:
+      batch_info:
+        batch_desc: rasvelg_dal_statebird_keyspace_overflow_alert
+        batch_domain: statebird
+        batch_increment: 86400 # how often batch job runs in seconds
+    callbacks:
+      - com.twitter.twadoop.analytics.rasvelg.callbacks.PassIfNoBatch
+
+run:
+
+  # Check if auto-increment columns on db.dal and db.statebird are running out of id space
+  - db: dal_dal_db_sandbox
+    executor: com.twitter.twadoop.analytics.rasvelg.executors.SqlABEqualityTestExecutor
+#    bind_keys:
+#      - batch_rows_processed
+    params:
+      sql:
+        "SELECT IF(COUNT(c.`data_type`)=0,TRUE,FALSE) as overflow, TRUE
+        FROM information_schema.columns as c
+        JOIN information_schema.tables as t on c.`table_name` = t.`table_name`
+        WHERE c.TABLE_SCHEMA = 'dal_sandbox' and c.EXTRA = 'auto_increment' and
+        ((c.data_type='tinyint' AND t.auto_increment > POWER(2, 8)*0.8) or
+        (c.data_type='smallint' AND t.auto_increment > POWER(2, 16)*0.8) or
+        (c.data_type='mediumint' AND t.auto_increment > POWER(2, 24)*0.8) or
+        (c.data_type='int' AND t.auto_increment > POWER(2, 32)*0.8) or
+        (c.data_type='bigint' AND t.auto_increment > POWER(2, 64)*0.8));"
+
+verify: []
+#  - executor: com.twitter.twadoop.analytics.rasvelg.executors.ProcessedNonZero
+
+err:
+  - db: dal_dal_db_sandbox
+    executor: com.twitter.twadoop.analytics.rasvelg.executors.RollbackExecutor
+
+  - executor: com.twitter.twadoop.analytics.rasvelg.executors.BatchError
+
+  # Send query result through email
+  - db: dal_dal_db_sandbox
+    executor: com.twitter.twadoop.analytics.rasvelg.executors.SqlEmailReportExecutor
+    params:
+      table_schema: dal_sandbox
+      sql:
+        "SELECT c.`data_type`, c.`column_name`, c.`table_name`, t.`auto_increment`
+         FROM information_schema.columns as c
+         JOIN information_schema.tables as t on c.`table_name` = t.`table_name`
+         WHERE c.TABLE_SCHEMA = '<%= table_schema =%>' and c.EXTRA = 'auto_increment' and (
+         (c.data_type='tinyint' AND t.auto_increment > POWER(2, 8)*0.8) or
+         (c.data_type='smallint' AND t.auto_increment > POWER(2, 16)*0.8) or
+         (c.data_type='mediumint' AND t.auto_increment > POWER(2, 24)*0.8) or
+         (c.data_type='int' AND t.auto_increment > POWER(2, 32)*0.8) or
+         (c.data_type='bigint' AND t.auto_increment > POWER(2, 64)*0.8));"
+      from: noreply@twitter.com
+      to: czhao@twitter.com
+      subject: "[ALERT] rasvelg_dal_statebird_keyspace_overflow_alert SQL Report"
+      body: "Some tables in Staging DAL DB Cluster are running out of keyspace(over 80% capacity). Please refer to the attached report for more detail."
+
+pass:
+  - executor: com.twitter.twadoop.analytics.rasvelg.executors.BatchPass
+
+success:
+  - db: dal_dal_db_sandbox
+    executor: com.twitter.twadoop.analytics.rasvelg.executors.CommitExecutor
+
+  - executor: com.twitter.twadoop.analytics.rasvelg.executors.BatchSuccess

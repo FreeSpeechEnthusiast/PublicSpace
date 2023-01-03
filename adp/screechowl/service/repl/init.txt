@@ -1,0 +1,31 @@
+import com.twitter.finagle.mtls.authentication.ServiceIdentifier
+import com.twitter.finagle.mtls.client.MtlsStackClient._
+import com.twitter.finagle.ThriftMux
+import com.twitter.screechowl.thriftscala._
+import com.twitter.statebird.v2.thriftscala.{BatchApp, Environment}
+import com.twitter.util._
+
+java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"))
+
+// Initialize wily, to connect to production service names
+com.twitter.server.Init.apply()
+
+val userName = System.getProperty("user.name")
+val serviceIdentifier = ServiceIdentifier(
+  role = userName,
+  service = "screechowl-repl",
+  environment = "devel",
+  zone = "local"
+)
+
+def prodClient() = {
+  ThriftMux.client
+    .withMutualTls(serviceIdentifier)
+    .build[ScreechOwl.MethodPerEndpoint]("/s/screechowl/screech-owl-service")
+}
+
+def stagingClient() = {
+  ThriftMux.client
+    .withMutualTls(serviceIdentifier)
+    .build[ScreechOwl.MethodPerEndpoint]("/cluster/local/screechowl-staging/staging/screech-owl-service")
+}

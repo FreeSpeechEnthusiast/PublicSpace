@@ -1,0 +1,83 @@
+class KerberizedTaskSettings(Struct):
+  keytab_path = Default(String, '/var/lib/tss/keys/fluffy/keytabs/client/dal.keytab')
+  refresh_interval_secs = Default(Integer, 3600)
+  principal = Default(String, 'dal@TWITTER.BIZ')
+  credentials_cache = Default(String, '$PWD/private/krb5_credentials_cache')
+  kerberos_tools_path = Default(String, '/usr/kerberos/bin:$PATH')
+  kinit_command = Default(String, 'kinit')
+  klist_command = Default(String, 'klist')
+
+
+class _KerberizedTaskContext(Struct):
+  decorated_task = Required(Task)
+  server_process = Required(Process)
+  settings = Required(KerberizedTaskSettings)
+
+
+_KERBERIZED_TASK_KINIT = Process(
+  name = "__kerberized_task_kinit",
+  cmdline = """
+    set -e -u -x
+    exec >&2
+    export PATH="{{__ktask.settings.kerberos_tools_path}}"
+    export KRB5CCNAME="{{__ktask.settings.credentials_cache}}"
+    mkdir -p $(dirname "$KRB5CCNAME") || true
+    chmod 700 $(dirname "$KRB5CCNAME") || true
+    {{__ktask.settings.kinit_command}} -k -t {{__ktask.settings.keytab_path}} {{__ktask.settings.principal}}
+    {{__ktask.settings.klist_command}} -s"""
+)
+
+_KERBERIZED_TASK_REFRESH = Process(
+  name = "__kerberized_task_refresh",
+  cmdline = """
+    set -e -u -x
+    exec >&2
+    export PATH="{{__ktask.settings.kerberos_tools_path}}"
+    export KRB5CCNAME="{{__ktask.settings.credentials_cache}}"
+    echo "Refreshing Kerberos TGT every {{__ktask.settings.refresh_interval_secs}} secs."
+    while sleep {{__ktask.settings.refresh_interval_secs}}; do
+      date
+      {{__ktask.settings.kinit_command}} -k -t {{__ktask.settings.keytab_path}} {{__ktask.settings.principal}}
+      {{__ktask.settings.klist_command}} -s
+      echo ===
+    done
+  """,
+  # We set max_failures to 10 as opposed to 0 to avoid the Thermos process history from growing too
+  # large, but in theory we would want to set this to 0.
+  max_failures = 10,
+  min_duration = "{{__ktask.settings.refresh_interval_secs}}",
+  daemon = True,
+  # Set ephemeral to true so the task is finished when the server process and cleanup process finish
+  ephemeral = True,
+)
+
+def KerberizedTask(task, server_process, **kwargs):
+  """Kerberized server task.
+
+  This decorator automatically requests an initial TGT from the authentication server before
+  starting your server process. It also adds a background process that periodically refreshes
+  your TGT on an interval.
+
+  For JVM Processes make sure you add the extra system property:
+
+    -D sun.security.jgss.native=true
+  """
+  context = _KerberizedTaskContext(
+    settings = KerberizedTaskSettings(**kwargs),
+    decorated_task = task,
+    server_process = server_process)
+
+  processes = [process for process in task.processes()
+      if process.name() != server_process.name()]
+
+  decorated_process = server_process(
+      cmdline="""
+          export KRB5CCNAME="{{__ktask.settings.credentials_cache}}"
+
+          {{__ktask.server_process.cmdline}}""")
+  processes.extend([decorated_process, _KERBERIZED_TASK_KINIT, _KERBERIZED_TASK_REFRESH])
+  constraints = (list(task.constraints().get())
+    + order(_KERBERIZED_TASK_KINIT, decorated_process)
+    + order(_KERBERIZED_TASK_KINIT, _KERBERIZED_TASK_REFRESH))
+
+  return task(processes = processes, constraints = constraints).bind(__ktask = context)

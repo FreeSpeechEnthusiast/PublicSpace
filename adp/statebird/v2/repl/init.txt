@@ -1,0 +1,30 @@
+import com.twitter.finagle.mtls.authentication.ServiceIdentifier
+import com.twitter.finagle.mtls.client.MtlsStackClient._
+import com.twitter.finagle.ThriftMux
+import com.twitter.statebird.v2.thriftscala._
+import com.twitter.util.Await
+
+java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"))
+
+// Initialize wily, to connect to production service names
+com.twitter.server.Init()
+
+val userName = System.getProperty("user.name")
+val serviceIdentifier = ServiceIdentifier(
+  role = userName,
+  service = "statebird-repl",
+  environment = "devel",
+  zone = "local"
+)
+
+def prodStatebirdClient() = {
+  ThriftMux.client
+    .withMutualTls(serviceIdentifier)
+    .build[Statebird.MethodPerEndpoint]("/s/statebird/statebird-v2")
+}
+
+def stagingStatebirdClient() = {
+  ThriftMux.client
+    .withMutualTls(serviceIdentifier)
+    .build[Statebird.MethodPerEndpoint]("/cluster/local/statebird-staging/staging/statebird-v2")
+}

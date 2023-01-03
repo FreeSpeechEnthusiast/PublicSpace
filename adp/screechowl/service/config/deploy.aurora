@@ -1,0 +1,113 @@
+import os
+
+class Profile(Struct):
+  role              = Default(String, os.environ['USER'])
+  environment       = Default(String, "devel")
+  name              = Default(String, "screech-owl-service")
+  package           = Default(String, "{{name}}")
+  version           = Default(String, "latest")
+  jar               = Default(String, "{{name}}-server.jar")
+  config            = Required(String)
+  instances         = Default(Integer, 1)
+  flags             = Default(String, "")
+  cpu               = Default(Float, 1.0)
+  ram               = Default(Integer, 6*GB)
+  disk              = Default(Integer, 2*GB)
+  splunk_app_id     = Default(String, "{{role}}")
+  splunk_tag        = Default(String, "{{cluster}}/{{role}}/{{environment}}/{{name}}")
+
+
+def thrift_run(profile): return JVMProcess(
+  name = '{{profile.name}}',
+  jvm = Java11(extra_jvm_flags = ' '.join([
+      "-Denvironment={{profile.environment}}",
+      "-Dlog.service.output={{profile.name}}.log",
+      "-Djavax.net.ssl.sessionCacheSize=1000",
+      "-Dlog.lens.index={{profile.splunk_app_id}}",
+      "-Dlog.lens.tag={{profile.splunk_tag}}",
+      ])),
+  arguments = ' '.join([
+    "-jar {{profile.jar}}",
+    "-admin.port=:{{thermos.ports[http]}}",
+    "-service.port=:{{thermos.ports[thrift]}}",
+    "-service.configClass={{profile.config}}",
+    "-serviceIdentifier.cluster={{cluster}}",
+    "-serviceIdentifier.role={{profile.role}}",
+    "-serviceIdentifier.service={{profile.name}}",
+    "-serviceIdentifier.environment={{profile.environment}}",
+    "-com.twitter.server.filter.throttlingAdmissionControlPercent=0.4",
+  ]) +  " {{profile.flags}}",
+  resources = Resources(cpu = profile.cpu(), ram = profile.ram(), disk = profile.disk())
+)
+
+thrift_install = Packer.install(
+  name = '{{profile.package}}',
+  role = '{{profile.role}}',
+  version = '{{profile.version}}'
+)
+
+def thrift_task(profile):
+    thrift_run_p = thrift_run(profile)
+    return Task(
+        name = "install_and_run",
+        processes = [
+          thrift_install,
+          Stats(),
+          thrift_run_p,
+          HeapDump(),
+          ProfilerSidecar(),
+        ],
+        resources = Resources(cpu = profile.cpu(), ram = profile.ram(), disk = profile.disk()),
+        constraints = order(thrift_install, thrift_run_p)
+   )
+
+def get_service(profile): return Job(
+  role = '{{profile.role}}',
+  environment = '{{profile.environment}}',
+  name = '{{profile.name}}',
+  contact = 'adp-team@twitter.com',  # Set this to your team email
+  service = '{{production}}',
+  instances = '{{profile.instances}}',
+  announce = Announcer(primary_port='thrift', portmap={'aurora': 'http', 'health': 'http'}),
+  update_config = UpdateConfig( watch_secs = 0, batch_size = 2),
+  health_check_config = HealthCheckConfig(
+      initial_interval_secs = 120,
+      interval_secs = 10,
+      timeout_secs = 15,
+      max_consecutive_failures = 8,
+      min_consecutive_successes = 2),
+  task = thrift_task(profile),
+  constraints = {
+    'os': 'centos7',
+  }
+)
+
+Devel = Profile(
+  config = "com.twitter.screechowl.service.config.DevConfig")
+
+Staging = Profile(
+ role = "screechowl-staging",
+ environment = "staging",
+ instances = 3,
+ config = "com.twitter.screechowl.service.config.StagingConfig")
+
+Prod = Profile(
+ role = "screechowl",
+ environment = "prod",
+ version = "latest",
+ instances = 5,
+ config = "com.twitter.screechowl.service.config.ProdConfig",
+ cpu = 2.0)
+
+dcs = ["smf1", "atla"]
+profiles = [Prod, Staging]
+
+jobs = []
+
+for dc in dcs:
+  for prof in profiles:
+    service = get_service(prof)
+    jobs += [service(cluster = dc, tier = 'preferred').bind(profile = prof)]
+
+dev_service = get_service(Devel)
+jobs += [dev_service(cluster = dc).bind(profile = Devel) for dc in dcs]

@@ -1,0 +1,21 @@
+load_generator: "com.twitter.dal.iago.FindInputSegmentsLoadTest"
+
+# How many seconds worth of requests Iago queues. Iago tries to maintain a request queue of size rps * num_clients * cached_seconds.
+cached_seconds: 5
+
+rps: 15
+
+duration:
+  time: 5 # minutes
+feeder:
+  feed_source:
+    custom: {}
+  poll_size: 100
+transport:
+  destinations:
+    - victim: "/cluster/local/dal-staging/staging/dal:thrift"
+  scheme:
+    thrift:
+      client_id: "dal-iago-load-test"
+      acquisition_timeout: 2000
+      request_timeout: 8000

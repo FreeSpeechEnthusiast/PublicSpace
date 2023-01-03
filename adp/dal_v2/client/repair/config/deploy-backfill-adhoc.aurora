@@ -1,0 +1,51 @@
+import os
+
+dc = os.getenv('DC') or 'smf1'
+cluster = os.getenv('CLUSTER') or 'dw2'
+file_path = os.getenv('CONFIG_FILE_PATH') or 'config/backfill.txt'
+
+PACKAGE_NAME = 'dal-backfill-adhoc'
+JOB_NAME = PACKAGE_NAME + '-%s-%s' % (cluster, dc)
+JOB_ROLE = 'dal'
+JOB_ENV = 'prod'
+AURORA_CLUSTER = dc
+IS_PROD = JOB_ENV == 'prod'
+
+RESOURCES = Resources(cpu = 2.0, ram = 1024*MB, disk = 1024*MB)
+HADOOP_CONF = Hadoop(config = '/etc/hadoop/hadoop-conf-%s-%s' % (cluster, dc))
+
+backfill_tool_installer = Packer.install(PACKAGE_NAME, version='latest')
+
+backfill_tool_process = HadoopProcess(
+  name = JOB_NAME + '_process',
+  arguments = ' '.join([
+    'jar dal-backfill-bin.jar repair segment-definition',
+    '--location-name %s-%s' % (cluster, dc),
+    '--config-file %s' % (file_path)
+  ]),
+  resources = RESOURCES,
+  jvm = Java11,
+  hadoop = HADOOP_CONF
+)
+
+backfill_task = SequentialTask(
+  name = JOB_NAME + '_task',
+  resources = RESOURCES,
+  processes = [backfill_tool_installer, backfill_tool_process],
+)
+
+backfill_job = Job(
+  name = JOB_NAME,
+  cluster = AURORA_CLUSTER,
+  role = JOB_ROLE,
+  service = False,
+  environment = JOB_ENV,
+  update_config = UpdateConfig(),
+  production = IS_PROD,
+  task = backfill_task,
+  constraints = {
+    'os': 'centos7',
+  },
+)
+
+jobs = [backfill_job]

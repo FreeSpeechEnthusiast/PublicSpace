@@ -1,0 +1,9 @@
+owners:
+  - authplatform:ldap
+  - account-security-team:ldap
+  - onboarding-task-admins:ldap
+
+watchers:
+  - authplatform@twitter.com
+  - account-security-eng@twitter.com
+  - onboarding-backend@twitter.com

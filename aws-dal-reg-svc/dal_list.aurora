@@ -1,0 +1,58 @@
+class Profile(Struct):
+  cluster = Default(String, "smf1")
+  environment = Required(String)
+  log_level = Default(String, "google:INFO")
+  name = Default(String, "aws-dal-list")
+  package_name = Required(String)
+  package_version = Default(String, "latest")
+  role = Required(String)
+  server_args = Required(String)
+  tier = Default(String, "preferred")
+  pex_name = Default(String, "dal_list.pex")
+
+download_server = Packer.install(
+  '{{profile.package_name}}',
+  role = '{{profile.role}}',
+  version='{{profile.package_version}}'
+)
+
+chmod_server = Process(
+    name = 'chmod_server',
+    cmdline = 'chmod +x {{profile.pex_name}}'
+)
+
+run_server = Process(
+  name = 'run_server',
+  cmdline = './{{profile.pex_name}} {{profile.server_args}} --log_to_stderr={{profile.log_level}} --s2s={{profile.name}}:{{profile.role}}:{{profile.environment}}:{{profile.cluster}}'
+)
+
+server_task = Task(
+  processes = [download_server, chmod_server, run_server],
+  constraints = order(download_server, chmod_server, run_server),
+  resources = Resources(cpu = 1, ram = 1 * GB, disk = 1 * GB)
+)
+
+server_job = Job(
+  announce = Announcer(),
+  name = '{{profile.name}}',
+  role = '{{profile.role}}',
+  instances = 1,
+  environment = '{{profile.environment}}',
+  tier = '{{profile.tier}}',
+  cluster = '{{profile.cluster}}',
+  task = server_task
+)
+
+prod = Profile(
+  environment = "prod",
+  package_name = "dal-list",
+  role = "aws-dal-registration-svc",
+  server_args = "--env=prod")
+
+staging = Profile(
+  environment = "staging",
+  package_name = "dal-list",
+  role = "aws-dal-reg-svc-staging",
+  server_args = "--env=staging")
+
+jobs = [server_job.bind(profile=prod), server_job.bind(profile=staging)]

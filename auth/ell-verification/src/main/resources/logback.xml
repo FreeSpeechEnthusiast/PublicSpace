@@ -1,0 +1,46 @@
+<configuration>
+    <shutdownHook class="ch.qos.logback.core.hook.DelayingShutdownHook"/>
+
+    <!-- JUL/JDK14 to Logback bridge -->
+    <contextListener class="ch.qos.logback.classic.jul.LevelChangePropagator">
+        <resetJUL>true</resetJUL>
+    </contextListener>
+
+    <!-- Console Appender -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Loglens -->
+    <appender name="LOGLENS" class="com.twitter.loglens.logback.LoglensAppender">
+        <index>${log.lens.index}</index>
+        <tag>${log.lens.tag}</tag>
+        <encoder>
+            <pattern>%msg</pattern>
+        </encoder>
+    </appender>
+
+    <!-- ===================================================== -->
+    <!-- Primary Async Appenders -->
+    <!-- ===================================================== -->
+
+    <property name="async_queue_size" value="${queue.size:-50000}"/>
+    <property name="async_max_flush_time" value="${max.flush.time:-0}"/>
+
+    <appender name="ASYNC-LOGLENS" class="com.twitter.inject.logback.AsyncAppender">
+        <queueSize>${async_queue_size}</queueSize>
+        <maxFlushTime>${async_max_flush_time}</maxFlushTime>
+        <appender-ref ref="LOGLENS"/>
+    </appender>
+
+    <!-- Per Package Config -->
+    <logger name="EllVerificationAppLogger" level="${log.root.level:-info}"/>
+
+    <!-- Root Logger -->
+    <root level="error"> <!-- We purposely set all other logging to error to not interrupt the user interaction via stdout -->
+        <appender-ref ref="STDOUT"/>
+        <appender-ref ref="ASYNC-LOGLENS"/>
+    </root>
+</configuration>

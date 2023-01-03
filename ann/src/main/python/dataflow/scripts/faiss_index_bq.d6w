@@ -1,0 +1,70 @@
+import os
+
+class Profile(Struct):
+    project = Required(String)
+    name = Required(String)
+    temp_location = Required(String)
+    staging_location = Required(String)
+    output_location = Required(String)
+    region = Required(String)
+    num_workers = Required(Integer)
+    service_account_email = Required(String)
+    metric = Required(String)
+    use_gpu = Required(String)
+
+faiss_indexing_job = Job(
+  name='{{profile.name}}',
+  project='{{profile.project}}',
+  staging_location='{{profile.staging_location}}',
+  temp_location='{{profile.temp_location}}',
+  region='{{profile.region}}',
+  unique_job_names=False,
+  network_config=NetworkConfig(
+  	subnetwork="https://www.googleapis.com/compute/v1/projects/core-infrastructure-173322/regions/us-central1/subnetworks/tw-common-dataflow-workers-qus1-1",
+  	use_public_ips=False
+  ),
+  worker_config=WorkerConfig(
+    num_workers='{{profile.num_workers}}',
+    autoscaling=AutoscalingAlgorithm('THROUGHPUT_BASED'),  # NONE or THROUGHPUT_BASED.
+    worker_machine_type="n1-standard-16"
+  ),
+  extra_args={
+    'service_account_email' : '{{profile.service_account_email}}',
+    'output_location': '{{profile.output_location}}',
+    'metric': '{{profile.metric}}',
+    'use_gpu': '{{profile.use_gpu}}',
+    'disk_size_gb': '50',
+    'experiments': 'no_use_multiple_sdk_containers',
+  }
+)
+
+faiss_indexing_job_dev_gpu = Profile(
+    name = f'faiss-index-bq-gpu',
+    project = 'twttr-recos-ml-prod',
+    staging_location = f'gs://azinchenko/dataflow/staging',
+    temp_location = 'gs://azinchenko/dataflow/temp',
+    output_location = 'gs://azinchenko/dataflow/output/gpu',
+    region = 'us-central1',
+    num_workers = 1,
+    service_account_email = 'azinchenko-shdw@twttr-dp-svc-accounts.iam.gserviceaccount.com',
+    metric = 'l2',
+    use_gpu = 'yes',
+)
+
+faiss_indexing_job_dev_no_gpu = Profile(
+    name = f'faiss-index-bq-nogpu',
+    project = 'twttr-recos-ml-prod',
+    staging_location = f'gs://azinchenko/dataflow/staging',
+    temp_location = 'gs://azinchenko/dataflow/temp',
+    output_location = 'gs://azinchenko/dataflow/output/nogpu',
+    region = 'us-central1',
+    num_workers = 1,
+    service_account_email = 'azinchenko-shdw@twttr-dp-svc-accounts.iam.gserviceaccount.com',
+    metric = 'l2',
+    use_gpu = 'no',
+)
+
+jobs = [
+    faiss_indexing_job.bind(profile = faiss_indexing_job_dev_gpu),
+    faiss_indexing_job.bind(profile = faiss_indexing_job_dev_no_gpu)
+]

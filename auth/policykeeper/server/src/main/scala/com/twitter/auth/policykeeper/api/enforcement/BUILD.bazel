@@ -1,0 +1,19 @@
+scala_library(
+    compiler_option_sets = ["fatal_warnings"],
+    platform = "java8",
+    tags = ["bazel-compatible"],
+    dependencies = [
+        "account_security/tsla/src/main/thrift/com/twitter/tsla/auth_events:auth-event-scala",
+        "auth/policykeeper/server/src/main/scala/com/twitter/auth/policykeeper/api/storage/common",
+        "auth/policykeeper/thrift/src/main/thrift:thrift-scala",
+        "finatra-internal/bouncer/src/main/scala/com/twitter/finatra/bouncer/exceptions",
+        "passbird/client/src/main/scala",
+        "passbird/thrift-only/src/main/thrift:thrift-java",
+        "src/thrift/com/twitter/bouncer:bounce-action-thrift-scala",
+        "src/thrift/com/twitter/bouncer:thrift-scala",
+        "tfe/core/src/main/scala/com/twitter/tfe/core/api",
+        "tfe/core/src/main/scala/com/twitter/tfe/core/bouncer/clients",
+        "tfe/core/src/main/scala/com/twitter/tfe/core/http",
+        "tfe/core/src/main/scala/com/twitter/tfe/core/routingng",
+    ],
+)

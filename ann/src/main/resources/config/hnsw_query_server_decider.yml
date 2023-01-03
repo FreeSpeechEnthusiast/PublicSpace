@@ -1,0 +1,6 @@
+common: &common
+  test_value:
+    comment: Test Value
+
+production:
+  <<: *common

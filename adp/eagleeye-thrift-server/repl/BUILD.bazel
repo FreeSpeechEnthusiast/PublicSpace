@@ -1,0 +1,7 @@
+scala_library(
+    name = "repl-deps",
+    dependencies = [
+        "eagleeye/eagleeye-thrift-server/src/main/scala/com/twitter/eagleeye/thrift_server",
+        "src/scala/com/twitter/eagleeye",
+    ],
+)

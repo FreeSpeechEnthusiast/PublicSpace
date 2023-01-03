@@ -1,0 +1,8 @@
+batch_info:
+  batch_desc: statebird v2 batch wrapper test
+  batch_domain: analytics
+  batch_increment: 3600
+  first_time: 2013-12-16 00:00:00
+
+statebird:
+  client_id: "statebird_batch_wrapper_test"

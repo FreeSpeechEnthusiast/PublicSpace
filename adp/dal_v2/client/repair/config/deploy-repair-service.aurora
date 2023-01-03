@@ -1,0 +1,162 @@
+include('kerberized_task.aurora')
+
+import os
+
+class Profile(Struct):
+  role              = Default(String, "dal")
+  name              = Required(String)
+  dc                = Required(String)
+  location_name     = Required(String)
+  environment       = Default(String, "prod")
+  cpu               = Default(Float, 4.0)
+  splunk_app_id     = Default(String, "{{role}}")
+  splunk_tag        = Default(String, "{{dc}}/{{role}}/{{environment}}/{{name}}")
+
+PACKAGE_NAME = 'dal-repair-service'
+HADOOP_JOB_RESOURCES = Resources(cpu = 2.0, ram = 4*GB, disk = 2*GB)
+JVM_ENVIRONMENT = {
+  'HADOOP_CLASSPATH' : './dal-repair-service.jar:/usr/lib/hive/lib/*'
+}
+
+task_resources = Resources(
+  cpu = '{{profile.cpu}}',
+  ram = 4*GB,
+  disk = 2*GB
+)
+
+# Grab the latest package from Packer
+install_dal_repair_dist = Packer.install(PACKAGE_NAME, version = 'latest')
+
+# Hadoop Process to run repair by scanning HDFS in the specific cluster-dc (like dw2-smf1)
+dal_repair_process = HadoopProcess(
+  name = '{{profile.name}}' + '_process',
+  arguments = ' '.join([
+    'jar %s.jar' % (PACKAGE_NAME),                  # Jar name comes from jvm_binary basename
+    '--location-name {{profile.location_name}}',   # Any additional debug args can be added here like --dry-run --verbose
+    '-admin.port=:{{thermos.ports[admin]}}',
+    '-serviceIdentifier.cluster={{profile.dc}}',
+    '-serviceIdentifier.role={{profile.role}}',
+    '-serviceIdentifier.service={{profile.name}}',
+    '-serviceIdentifier.environment={{profile.environment}}',
+    '-com.twitter.eventbus.client.zoneName={{profile.dc}}',
+    '-com.twitter.eventbus.client.EnableKafkaSaslTls=true'
+  ]),
+  resources = HADOOP_JOB_RESOURCES,
+  jvm = Java11(
+    jvm_environment = JVM_ENVIRONMENT,
+    extra_jvm_flags =  ' '.join([
+      "-Denvironment={{profile.environment}}",
+      "-XX:-OmitStackTraceInFastThrow",
+      "-Dlog.service.output={{profile.name}}.log",
+      "-Dlog.lens.index={{profile.splunk_app_id}}",
+      "-Dlog.lens.tag={{profile.splunk_tag}}",
+      "-Djava.security.auth.login.config=config/jaas.conf",
+    ]),
+    metaspace = 192*MB
+  ),
+  hadoop = Hadoop(config = '/etc/hadoop/hadoop-conf-' + '{{profile.location_name}}')
+)
+
+# Creates JAAS config for Kafka => EB migration. This step follows after creating keytabs in Kite
+# described here https://confluence.twitter.biz/pages/viewpage.action?pageId=107102665
+create_jaas_config = Process(
+    name           = 'create_jaas_config',
+    cmdline        = """
+    mkdir -p config
+    echo "KafkaClient {
+      com.sun.security.auth.module.Krb5LoginModule required
+      principal=\\"{{profile.role}}@TWITTER.BIZ\\"
+      useKeyTab=true
+      storeKey=true
+      keyTab=\\"/var/lib/tss/keys/fluffy/keytabs/client/{{profile.role}}.keytab\\"
+      doNotPrompt=true;
+    };" >> config/jaas.conf
+    """
+)
+
+
+# Aurora Task
+dal_repair_task = Task(
+  name = '{{profile.name}}_task',
+  resources = task_resources,
+  processes = [install_dal_repair_dist, create_jaas_config, Stats(library='metrics', port='admin'), HeapDump(), dal_repair_process],
+  constraints = order(install_dal_repair_dist, create_jaas_config, dal_repair_process)
+)
+
+# Run as a service - Aurora will handle restarts and rolling starts
+service = Service(
+  role = '{{profile.role}}',
+  environment = '{{profile.environment}}',
+  name = '{{profile.name}}',
+  cluster = '{{profile.dc}}',
+  tier = 'preferred',
+  instances = '1',
+  contact = 'adp-team@twitter.com',
+  task = KerberizedTask(
+    server_process = dal_repair_process,
+    task = dal_repair_task,
+    # Override credentials_cache because of credsplugin's expectations.
+    credentials_cache = '/tmp/credsplugin_krb5cc_3217'
+  ),
+  announce = Announcer(primary_port='admin', portmap={'aurora': 'admin', 'health': 'admin'}),
+  update_config = UpdateConfig(watch_secs = 62),
+  health_check_config = HealthCheckConfig(initial_interval_secs = 90, max_consecutive_failures = 6),
+  enable_hooks = 'True',
+  constraints = {
+    'os': 'centos7',
+  },
+)
+
+Dw2Smf1 = Profile(
+  name = "dal-repair-service-dw2-smf1",
+  dc = "smf1",
+  location_name = "dw2-smf1"
+)
+DwrevSmf1 = Profile(
+  name = "dal-repair-service-dwrev-smf1",
+  dc = "smf1",
+  location_name = "dwrev-smf1",
+)
+ColdAtla = Profile(
+  name = "dal-repair-service-cold-atla",
+  dc = "atla",
+  location_name = "cold-atla"
+)
+ProcAtla = Profile(
+  name = "dal-repair-service-proc-atla",
+  dc = "atla",
+  location_name = "proc-atla",
+  cpu = 6
+)
+Proc2Atla = Profile(
+  name = "dal-repair-service-proc2-atla",
+  dc = "atla",
+  location_name = "proc2-atla"
+)
+Proc3Atla = Profile(
+  name = "dal-repair-service-proc3-atla",
+  dc = "atla",
+  location_name = "proc3-atla"
+)
+ProcpiAtla = Profile(
+  name = "dal-repair-service-procpi-atla",
+  dc = "atla",
+  location_name = "procpi-atla"
+)
+ProcrevAtla = Profile(
+  name = "dal-repair-service-procrev-atla",
+  dc = "atla",
+  location_name = "procrev-atla",
+  cpu = 6
+)
+
+jobs = [
+  service().bind(profile = Dw2Smf1),
+  service().bind(profile = DwrevSmf1),
+  service().bind(profile = ColdAtla),
+  service().bind(profile = ProcAtla),
+  service().bind(profile = Proc2Atla),
+  service().bind(profile = Proc3Atla),
+  service().bind(profile = ProcpiAtla),
+  service().bind(profile = ProcrevAtla),
+]

@@ -1,0 +1,12 @@
+crane: 30000
+mysql_load: 15
+mysql_query: 4
+rasvelg: 10000
+vertica-atla-new_load: 8
+vertica-atla-new_query: 100
+vertica-smf1_load: 7
+vertica-smf1_query: 100
+vertica-smf1_roac: 7
+vertica_rev_load: 1000
+vertica_rev_query: 100
+vulcan: 5

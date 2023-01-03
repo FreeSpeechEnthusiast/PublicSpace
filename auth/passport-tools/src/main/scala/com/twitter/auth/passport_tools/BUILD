@@ -1,0 +1,26 @@
+scala_library(
+    sources = ["*.scala"],
+    compiler_option_sets = ["fatal_warnings"],
+    platform = "java8",
+    provides = scala_artifact(
+        org = "com.twitter",
+        name = "passport-tools",
+        repo = artifactory,
+    ),
+    tags = ["bazel-compatible"],
+    dependencies = [
+        "3rdparty/jvm/com/fasterxml/jackson/core:jackson-annotations",
+        "3rdparty/jvm/com/fasterxml/jackson/core:jackson-core",
+        "3rdparty/jvm/com/fasterxml/jackson/core:jackson-databind",
+        "3rdparty/jvm/com/fasterxml/jackson/datatype:jackson-datatype-jdk8",
+        "3rdparty/jvm/com/fasterxml/jackson/datatype:jackson-datatype-jsr310",
+        "3rdparty/jvm/com/google/inject:guice",
+        "3rdparty/jvm/net/codingwell:scala-guice",
+        "auth/pasetoheaders/src/main/java/com/twitter/auth/pasetoheaders/encryption",
+        "auth/pasetoheaders/src/main/java/com/twitter/auth/pasetoheaders/models",
+        "auth/pasetoheaders/src/main/resources",
+        "auth/pasetoheaders/src/main/scala/com/twitter/auth/pasetoheaders/finagle",
+        "auth/pasetoheaders/src/main/scala/com/twitter/auth/pasetoheaders/javahelpers",
+        "finatra-internal/authentication/src/main/scala",
+    ],
+)

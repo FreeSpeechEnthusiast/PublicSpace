@@ -1,0 +1,14 @@
+THESE ARE PUBLIC "PRIVATE" KEYS
+
+These keys are meant to be used while running your services locally, without the need to rely on
+TSS to retrieve actual production private keys.
+
+These keys will not allow you to access production data.
+
+The format of the directory is:
+
+- private_keys
+|-- pasetoheaders  (root relative folder)
+  |-- environment  (ex: devel)
+    |-- issuer     (ex: tfe)
+    |-- issuer    (ex: anotherService)

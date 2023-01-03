@@ -1,0 +1,4 @@
+files(
+    name = "files",
+    sources = ["**/*"],
+)

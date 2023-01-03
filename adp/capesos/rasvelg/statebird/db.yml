@@ -1,0 +1,59 @@
+statebird_db_prod:
+  adapter: mysql
+  host: db-statebird-rw-master-001.global-db.twttr.net
+  database: statebird
+  port: 3306
+  encoding: UTF8
+  jdbc_params:
+    rewriteBatchedStatements: true
+    zeroDateTimeBehavior: convertToNull
+    useUnicode: true
+    characterEncoding: UTF-8
+  keybird_file: /var/lib/tss/keys/statebird/service.yml
+  keybird_key: statebird_db_prod
+
+# dal_prod database for dal role
+dal_dal_db_prod:
+  adapter: mysql
+  host: db-dal-rw-master-001.smf1.twitter.com
+  database: dal_prod
+  port: 3306
+  encoding: UTF8
+  jdbc_params:
+    rewriteBatchedStatements: true
+    zeroDateTimeBehavior: convertToNull
+    useUnicode: true
+    characterEncoding: UTF-8
+  keybird_file: /var/lib/tss/keys/dal/service.yml
+  keybird_key: db_rw
+
+# dal_sandbox database for dal role
+dal_dal_db_sandbox:
+  adapter: mysql
+  host: db-dal-rw-sandbox-001.global-db.twttr.net
+  database: dal_sandbox
+  port: 3306
+  encoding: UTF8
+  jdbc_params:
+    rewriteBatchedStatements: true
+    zeroDateTimeBehavior: convertToNull
+    useUnicode: true
+    characterEncoding: UTF-8
+  keybird_file: /var/lib/tss/keys/dal-staging/dal-sandbox/dal_sand.mysql.yml
+  keybird_key: db_rw
+
+# statebird database for dal role
+dal_statebird_db_prod:
+  adapter: mysql
+  host: db-statebird-rw-master-001.global-db.twttr.net
+  database: statebird
+  port: 3306
+  encoding: UTF8
+  jdbc_params:
+    rewriteBatchedStatements: true
+    zeroDateTimeBehavior: convertToNull
+    useUnicode: true
+    characterEncoding: UTF-8
+  keybird_file: /var/lib/tss/keys/dal/statebird/dal_service.yml
+  keybird_key: dal_db_prod
+

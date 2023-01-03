@@ -1,0 +1,14 @@
+junit_tests(
+    sources = ["*.java"],
+    compiler_option_sets = ["fatal_warnings"],
+    runtime_platform = "java11",
+    tags = ["bazel-compatible"],
+    dependencies = [
+        "3rdparty/jvm/com/fasterxml/jackson/core:jackson-annotations",
+        "3rdparty/jvm/com/fasterxml/jackson/core:jackson-core",
+        "3rdparty/jvm/com/fasterxml/jackson/core:jackson-databind",
+        "3rdparty/jvm/com/fasterxml/jackson/datatype:jackson-datatype-jdk8",
+        "3rdparty/jvm/junit",
+        "auth/pasetoheaders/src/main/java/com/twitter/auth/pasetoheaders/models",
+    ],
+)

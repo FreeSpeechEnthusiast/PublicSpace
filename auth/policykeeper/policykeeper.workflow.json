@@ -1,0 +1,80 @@
+{
+  "role": "policykeeper",
+  "name": "policykeeper",
+  "sync-type": "auto",
+  "repository": "source",
+  "config-files": [
+    "policykeeper.aurora"
+  ],
+  "description": "Policykeeper service go/policykeepertdd",
+  "build": {
+    "pants-jvm-bundle": "auth/policykeeper:policykeeper-app",
+    "play": "true",
+    "trigger": {
+      "cron-schedule": "00 17 * * 1-5"
+    }
+  },
+  "targets": [
+    {
+      "type": "group",
+      "name": "staging",
+      "enforceOrdering": false,
+      "description": "A description for the staging deploy",
+      "targets": [
+        {
+          "type": "aurora",
+          "key": "smf1/policykeeper/staging/policykeeper"
+        },
+        {
+          "type": "aurora",
+          "key": "atla/policykeeper/staging/policykeeper"
+        },
+        {
+          "type": "aurora",
+          "key": "pdxa/policykeeper/staging/policykeeper"
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "name": "canary",
+      "description": "A description for the canary deploy",
+      "targets": [
+        {
+          "type": "aurora",
+          "key": "smf1/policykeeper/prod/policykeeper/0-1",
+          "description": "smf1 canary - maybe link to a dashboard or some motivational text?"
+        },
+        {
+          "type": "aurora",
+          "key": "atla/policykeeper/prod/policykeeper/0-1",
+          "description": "atla canary - maybe link to a dashboard or some motivational text?"
+        },
+        {
+          "type": "aurora",
+          "key": "pdxa/policykeeper/prod/policykeeper/0-1",
+          "description": "pdxa canary - maybe link to a dashboard or some motivational text?"
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "name": "prod",
+      "description": "Description for a full scale production deploy!",
+      "targets": [
+        {
+          "type": "aurora",
+          "key": "smf1/policykeeper/prod/policykeeper"
+        },
+        {
+          "type": "aurora",
+          "key": "atla/policykeeper/prod/policykeeper"
+        },
+        {
+          "type": "aurora",
+          "key": "pdxa/policykeeper/prod/policykeeper"
+        }
+      ]
+    }
+  ]
+}

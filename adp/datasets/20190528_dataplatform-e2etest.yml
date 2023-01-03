@@ -1,0 +1,66 @@
+# dataplatform-e2etest is a project jointly owned by CDL and ADP teams.
+# This config is to register some of the top level directories that appear as unregistered.
+# Marking all of the datasets as having NoPersonalData.
+# The expectation here is that since these are system level log files (spark_logs), and
+# test input/output files, they should not contain any personal data and hence safe to register
+# with the CLI command.
+
+datasets: [
+  {
+    name : "job-inputs",
+    paths : [
+    "viewfs://hadoop-dw2-nn.smf1.twitter.com/user/dataplatform-e2etest/job-inputs"
+    ],
+    has_personal_data: "NoPersonalData",
+    override_owner: "dataplatform-e2etest"
+  },
+  {
+
+    name: "job-outputs",
+    paths: [
+          "viewfs://hadoop-dw2-nn.smf1.twitter.com/user/dataplatform-e2etest/job-outputs"
+    ],
+    has_personal_data: "NoPersonalData",
+    override_owner: "dataplatform-e2etest"
+  },
+  {
+    name : "obs_grp1",
+    paths : [
+          "viewfs://hadoop-dw2-nn.smf1.twitter.com/user/dataplatform-e2etest/obs_grp1"
+    ],
+    has_personal_data: "NoPersonalData",
+    override_owner: "dataplatform-e2etest"
+  },
+  {
+    name: "obs_sampled",
+    paths: [
+         "viewfs://hadoop-dw2-nn.smf1.twitter.com/user/dataplatform-e2etest/obs_sampled"
+    ],
+    has_personal_data: "NoPersonalData",
+    override_owner: "dataplatform-e2etest"
+  },
+  {
+    name: "obs_test1",
+    paths: [
+        "viewfs://hadoop-dw2-nn.smf1.twitter.com/user/dataplatform-e2etest/obs_test1"
+    ],
+    has_personal_data: "NoPersonalData",
+    override_owner: "dataplatform-e2etest"
+  },
+  {
+    name: "output",
+    paths: [
+        "viewfs://hadoop-dw2-nn.smf1.twitter.com/user/dataplatform-e2etest/output"
+    ],
+    has_personal_data: "NoPersonalData",
+    override_owner: "dataplatform-e2etest"
+  },
+  {
+    name: "spark_logs",
+    paths: [
+        "viewfs://hadoop-dw2-nn.smf1.twitter.com/user/dataplatform-e2etest/spark_logs"
+    ],
+    has_personal_data: "NoPersonalData",
+    override_owner: "dataplatform-e2etest"
+  }
+]

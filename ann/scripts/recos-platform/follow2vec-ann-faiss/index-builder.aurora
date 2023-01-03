@@ -1,0 +1,107 @@
+class Profile(Struct):
+  environment          = Required(String)
+  embedding_date_range = Required(String)
+  embedding_args       = Default(String, '--input.feature_store_embedding Follow2VecProducerEmbedding200Dataset --input.feature_store_major_version 20210708')
+  name                 = Default(String, 'follow2vec-ann-faiss-index-builder')
+  jar                  = Default(String, 'faissindexbuilder-deploy.jar')
+  role                 = Default(String, 'cassowary')
+  hadoop_cluster       = Default(String, 'proc3-atla')
+  output_dir           = Default(String, 'hdfs:///user/cassowary/follow2vec-ann-faiss/pq100')
+  num_dimensions       = Default(Integer, 200)
+  entity_kind          = Default(String, 'user')
+  metric               = Default(String, 'Cosine')
+  ef_construction      = Default(Integer, 200)
+  packer_role          = Default(String, 'cassowary')
+  packer_package       = Default(String, 'faiss-index-builder')
+  packer_version       = Default(String, 'latest')
+  factory_string       = Default(String, 'OPQ100,IVF262144\(IVF512,PQ50x4fs,RFlat\),PQ100')
+  training_sample_rate = Default(String, '0.05')
+
+
+CPU = 20
+resources_config = Resources(cpu = CPU, ram = 256 * GB, disk = 128 * GB)
+
+installers = [
+  Packer.install(
+    name='gcc-12.0-stdlib',
+    role='cassowary',
+    version='latest'
+  ),
+  Packer.install(
+    name='{{profile.packer_package}}',
+    role='{{profile.packer_role}}',
+    version='{{profile.packer_version}}'
+  )
+]
+
+runner_process = HadoopProcess(
+  name = '{{profile.name}}_process',
+  arguments = ' '.join([
+    'jar {{profile.jar}}',
+    "-libjars 'libs/*'",
+    '-Dscalding.auto_tuning.service.identifier=twtr:svc:{{profile.role}}:{{profile.name}}:{{environment}}:{{cluster}}',
+    '--hdfs',
+    '--output_dir {{profile.output_dir}}',
+    '--num_dimensions {{profile.num_dimensions}}',
+    '--entity_kind {{profile.entity_kind}}',
+    '--metric {{profile.metric}}',
+    '--factory_string {{profile.factory_string}}',
+    '--embedding_date_range {{profile.embedding_date_range}}',
+    '--training_sample_rate {{profile.training_sample_rate}}',
+    '{{profile.embedding_args}}'
+  ]),
+  jvm = Java11(
+    extra_jvm_flags = ' '.join([
+      '-Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address={{thermos.ports[debug]}}',
+      '-XX:MaxMetaspaceSize=256M',
+      '-XX:MetaspaceSize=256M',
+      '-Dcom.twitter.dal.client.builder.DALServiceIdentifier=twtr:svc:{{profile.role}}:{{profile.name}}:{{environment}}:{{cluster}}',
+      '-Dcom.twitter.dal.client.builder.DALRequireTls=true',
+    ]),
+    jvm_environment = {
+      'HADOOP_CLASSPATH': '{{profile.jar}}:libs/*:',
+      'OMP_NUM_THREADS': CPU,
+    }
+  ),
+  resources = resources_config,
+  hadoop = Hadoop(config='/etc/hadoop/hadoop-conf-{{profile.hadoop_cluster}}')
+)
+
+runner_task = SequentialTask(
+  resources = resources_config,
+  processes = installers + [runner_process]
+)
+
+runner_job = Job(
+  name = '{{profile.name}}',
+  role = '{{profile.role}}',
+  update_config = UpdateConfig(),
+  constraints = {'os' : 'centos7'},
+  task = runner_task,
+  service = False,
+)
+
+DEVEL = Profile()
+STAGING = Profile()
+PRODUCTION = Profile()
+
+devel_job = runner_job(
+  environment = 'devel',
+  tier = 'preemptible',
+).bind(profile = DEVEL)
+
+staging_job = runner_job(
+  environment = 'staging',
+  tier = 'preferred',
+).bind(profile = STAGING)
+
+prod_job = runner_job(
+  environment = 'prod',
+  tier = 'preferred',
+).bind(profile = PRODUCTION)
+
+jobs = []
+for cluster in ['atla']: # Only atla because it's much faster to colocate submitter and hadoop cluster
+  jobs.append(devel_job(cluster = cluster))
+  jobs.append(staging_job(cluster = cluster))
+  jobs.append(prod_job(cluster = cluster))

@@ -1,0 +1,20 @@
+scala_library(
+    sources = ["**/*.scala"],
+    compiler_option_sets = ["fatal_warnings"],
+    tags = ["bazel-compatible"],
+    dependencies = [
+        "auth/api-verification/src/main/resources",
+        "finagle-internal/mtls/src/main/scala/com/twitter/finagle/mtls/authentication",
+        "finagle/finagle-core/src/main",
+        "finagle/finagle-http/src/main/scala",
+        "finagle/finagle-thriftmux/src/main/scala",
+        "finatra-internal/mtls-thriftmux/src/main/scala",
+        "finatra-internal/mtls/src/main/scala",
+        "finatra/inject/inject-app/src/main/scala",
+        "finatra/inject/inject-core/src/main/scala",
+        "finatra/inject/inject-modules/src/main/scala",
+        "finatra/inject/inject-modules/src/main/scala/com/twitter/inject/modules",
+        "flightauth/thrift/src/main/thrift:thrift-scala",
+        "twitter-server/server/src/main/scala",
+    ],
+)

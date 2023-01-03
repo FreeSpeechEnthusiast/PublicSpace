@@ -1,0 +1,14 @@
+scala_library(
+    sources = ["*.scala"],
+    compiler_option_sets = ["fatal_warnings"],
+    platform = "java8",
+    provides = scala_artifact(
+        org = "com.twitter",
+        name = "authorization-scopes",
+        repo = artifactory,
+    ),
+    tags = ["bazel-compatible"],
+    dependencies = [
+        "configbus/subscriber/src/main/scala/com/twitter/configbus/subscriber",
+    ],
+)

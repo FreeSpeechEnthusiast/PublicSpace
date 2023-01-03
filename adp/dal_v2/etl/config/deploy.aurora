@@ -1,0 +1,1563 @@
+from textwrap import dedent
+import os
+
+class Profile(Struct):
+  cluster           = Default(String, 'atla')
+  role              = Default(String, os.environ['USER'])
+  environment       = Default(String, "devel")
+  name              = Required(String)
+  contact           = Required(String)
+  package           = Default(String, "{{name}}-{{environment}}")
+  version           = Default(String, "latest")
+  jar               = Default(String, "{{name}}.jar")
+  args              = Required(String)
+  main              = Required(String)
+  schedule          = Required(String)
+  tier              = Default(String, "preemptible")
+  cpu               = Default(Float, 2.0)
+  ram               = Default(Integer, 3*GB)
+  disk              = Default(Integer, 2*GB)
+  jvm_flags         = Default(String, "")
+
+stats = Stats(library="metrics", port="admin")
+
+#heap dump configs
+heapdumpweb_installer = Packer.install('heap_dumper_web', role='heapdumper', version='latest')
+
+heapdumpweb_process = Process(
+  name='heapdumpweb_process',
+  cmdline='./heap_dumper_web.pex -f ./%s-jvmprocess.pid -s ./.healthchecksnooze --port {{thermos.ports[heapdump]}}' % '{{profile.name}}',
+  ephemeral=True
+)
+
+async_profiler_install = Packer.install(
+  name = 'async-profiler',
+  role = 'csl-perf',
+  version = 'latest'
+)
+
+source_snapshot_pex_install_process = Packer.install('source-snapshot', version='live', role='devprod')
+source_git_install_process = Packer.install('source-git.el7.x86_64', version='live', role='devprod')
+
+# Use bazel to run the scrooge generator for some gizmoduck thrift that we want to parse
+gen_gizmoduck_modified_user_thrift = Process(
+    name = 'gen_gizmoduck_thrift',
+    cmdline = dedent(r"""\
+        cd source &&
+        ./bazel run --cwd scrooge-internal/generator:bin \
+            -- \
+            -i src/thrift/ \
+            --language gizmoduck_thrift --finagle --gen-adapt \
+            --dest src/thrift/ \
+            src/thrift/com/twitter/gizmoduck/user.thrift
+        """))
+
+deploy_source_process = Process(
+    name = 'snapshot_update_process',
+    cmdline = dedent(r"""\
+        set -euo pipefail &&
+        chmod 755 source-snapshot.pex &&
+        GIT_BIN="$(pwd)/git.Linux.x86_64/bin/git" &&
+        echo "GIT_BIN: ${GIT_BIN}" >&2 &&
+        export GIT_TRACE=2 GIT_CURL_VERBOSE=2 &&
+        ./source-snapshot.pex deploy --hadoop-cluster=rt2 --git-bin="${GIT_BIN}" --local
+        """))
+
+install = Packer.install(
+  name = '{{profile.package}}',
+  role = '{{profile.role}}',
+  version = '{{profile.version}}',
+)
+
+discover_profiler_port_process = Process(
+  name = 'discover_profiler_port',
+  cmdline = 'echo {{thermos.ports[profiler]}} > profiler.port',
+)
+
+def get_resources(profile):
+  return Resources(cpu = profile.cpu(), ram = profile.ram(), disk = profile.disk())
+
+def get_run_process(profile):
+  return JVMProcess(
+    name = '{{profile.name}}',
+    jvm = Java11(
+      jvm_environment = {
+        "MESOS_JOB_KEY":"{{profile.cluster}}/{{profile.role}}/{{profile.environment}}/{{profile.name}}",
+        "MESOS_TASK_ID":"{{thermos.task_id}}",
+        "MESOS_HOST":"`hostname`",
+      },
+      extra_jvm_flags = ' '.join([
+        "-Denvironment={{profile.environment}}",
+        "-Dlog4j.configuration=com/twitter/twadoop/batch/task/log4j.properties",
+        "-Dlog.service.output={{profile.name}}.log",
+        "-Dlogback.configurationFile=logback.xml",
+        "{{profile.jvm_flags}}",
+      ])
+    ),
+    arguments = ' '.join([
+      "-jar {{profile.jar}}",
+      "-admin.port=:{{thermos.ports[admin]}}",
+      "{{profile.main}}",
+      "{{profile.args}}",
+      "-serviceIdentifier.cluster={{profile.cluster}}",
+      "-serviceIdentifier.role={{profile.role}}",
+      "-serviceIdentifier.service={{profile.name}}",
+      "-serviceIdentifier.environment={{profile.environment}}",
+    ]),
+    resources = get_resources(profile)
+  )
+
+def get_etl_task(profile, with_source_repo=False):
+  run_process = get_run_process(profile)
+  task_resources = get_resources(profile)
+
+  if with_source_repo:
+    task_constraints = order(install, source_snapshot_pex_install_process, source_git_install_process, deploy_source_process, gen_gizmoduck_modified_user_thrift, run_process) +\
+                       order(heapdumpweb_installer, heapdumpweb_process)
+    task_processes = [
+        install, stats, run_process, discover_profiler_port_process, heapdumpweb_installer, heapdumpweb_process, async_profiler_install,
+        source_snapshot_pex_install_process, source_git_install_process, deploy_source_process, gen_gizmoduck_modified_user_thrift
+      ]
+  else:
+    task_constraints = order(install, run_process) + order(heapdumpweb_installer, heapdumpweb_process)
+    task_processes = [
+      install, stats, run_process, discover_profiler_port_process, heapdumpweb_installer, heapdumpweb_process, async_profiler_install
+    ]
+  return Task(
+    name = "install_and_run",
+    processes = task_processes,
+    resources = task_resources,
+    constraints = task_constraints
+  )
+
+def get_etl_job(profile, with_source_repo=False):
+  etl_task = get_etl_task(profile, with_source_repo=with_source_repo)
+  return Job(
+    role = profile.role(),
+    environment = profile.environment(),
+    instances = 1,
+    name = profile.name(),
+    contact = 'adp-team@twitter.com',
+    announce = Announcer(primary_port='admin', portmap={'aurora': 'admin'}),
+    cluster = profile.cluster(),
+    update_config = UpdateConfig(watch_secs = 61, batch_size = 1),
+    health_check_config = HealthCheckConfig(initial_interval_secs = 60),
+    task = etl_task,
+    cron_schedule = profile.schedule(),
+    cron_collision_policy = 'CANCEL_NEW',
+    constraints = {
+      'os': 'centos7',
+    },
+    tier = profile.tier(),
+  ).bind(profile=profile)
+
+app_deactivation_staging = Profile(
+  role = 'dal-staging',
+  environment = "staging",
+  name = "dal-etl-application",
+  contact = 'adp-team-staging@twitter.com',
+  args = "-env=staging -dryRun=false",
+  main = "com.twitter.dal.etl.task.application.ApplicationDeactivationApp",
+  schedule = "19,49 * * * *",
+)
+
+app_deactivation_prod = Profile(
+  role = 'dal',
+  environment = "prod",
+  name = "dal-etl-application",
+  args = "-env=prod -dryRun=false",
+  main = "com.twitter.dal.etl.task.application.ApplicationDeactivationApp",
+  schedule = "19,49 * * * *",
+  tier = 'preferred'
+)
+
+app_deactivation_prod_dryrun = Profile(
+  role = 'dal',
+  environment = "prod",
+  name = "dal-etl-application-dryrun",
+  jar = "dal-etl-application.jar",
+  args = "-env=prod -dryRun=true",
+  main = "com.twitter.dal.etl.task.application.ApplicationDeactivationApp",
+  schedule = "19,49 * * * *",
+)
+
+dataset_deactivation_staging = Profile(
+  role = 'dal-staging',
+  environment = "staging",
+  name = "dal-etl-dataset",
+  contact = 'adp-team-staging@twitter.com',
+  args = "-env=staging -dryRun=false",
+  main = "com.twitter.dal.etl.task.dataset.DatasetDeactivationApp",
+  schedule = "15 1,5,9,13,17,21 * * *",
+)
+
+dataset_deactivation_prod = Profile(
+  role = 'dal',
+  environment = "prod",
+  name = "dal-etl-dataset",
+  args = "-env=prod -dryRun=false",
+  main = "com.twitter.dal.etl.task.dataset.DatasetDeactivationApp",
+  # spacing out all the jobs running on a */4 schedule
+  schedule = "15 1,5,9,13,17,21 * * *",
+  tier = 'preferred'
+)
+
+dataset_deactivation_prod_dryrun = Profile(
+  role = 'dal',
+  environment = "prod",
+  name = "dal-etl-dataset-dryrun",
+  jar = "dal-etl-dataset.jar",
+  args = "-env=prod -dryRun=true",
+  main = "com.twitter.dal.etl.task.dataset.DatasetDeactivationApp",
+  schedule = "15 1,5,9,13,17,21 * * *",
+)
+
+dataset_taxonomy_loader_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-taxonomy',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.taxonomy.DatasetTaxonomyLoader',
+  # for now, set a very infrequent cron; we'll most likely redeploy before each run
+  schedule = '0 0 1 1 *',
+)
+
+dataset_taxonomy_loader_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-taxonomy',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.taxonomy.DatasetTaxonomyLoader',
+  # for now, set a very infrequent cron; we'll most likely redeploy before each run
+  schedule = '0 0 1 1 *',
+  tier = 'preferred'
+)
+
+dataset_taxonomy_loader_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-taxonomy-dryrun',
+  jar = 'dal-etl-taxonomy.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.taxonomy.DatasetTaxonomyLoader',
+  # for now, set a very infrequent cron; we'll most likely redeploy before each run
+  schedule = '0 0 1 1 *',
+)
+
+graph_summaries_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-graph-summaries',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.graph_summaries.GraphSummariesUpdater',
+  schedule = '17,47 * * * *',
+)
+
+graph_summaries_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-graph-summaries',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.graph_summaries.GraphSummariesUpdater',
+  schedule = '17,47 * * * *',
+  tier = 'preferred'
+)
+
+graph_summaries_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-graph-summaries-dryrun',
+  jar = 'dal-etl-graph-summaries.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.graph_summaries.GraphSummariesUpdater',
+  schedule = '17,47 * * * *',
+)
+
+datasource_property_updates_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-datasource-property-updates',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=true',
+  main = 'com.twitter.dal.etl.task.datasource.DataSourcePropertyUpdatesApp',
+  schedule = '24,54 * * * *',
+)
+
+datasource_property_updates_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-datasource-property-updates',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.datasource.DataSourcePropertyUpdatesApp',
+  schedule = '24,54 * * * *',
+  tier = 'preferred'
+)
+
+datasource_property_updates_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-datasource-property-updates-dryrun',
+  jar = 'dal-etl-datasource-property-updates.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.datasource.DataSourcePropertyUpdatesApp',
+  schedule = '24,54 * * * *',
+)
+
+data_usage_update_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-data-usage-update',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.usage.DataUsageUpdater',
+  schedule = '20 */2 * * *',
+)
+
+data_usage_update_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-data-usage-update',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.usage.DataUsageUpdater',
+  schedule = '20 */2 * * *',
+  tier = 'preferred'
+)
+
+data_usage_update_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-data-usage-update-dryrun',
+  jar = 'dal-etl-data-usage-update.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.usage.DataUsageUpdater',
+  schedule = '20 */2 * * *',
+)
+
+eagleeye_users_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-eagleeye-users-updater',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.eagleeye_users.EagleEyeUsersUpdater',
+  schedule = '4,19,34,49 * * * *',
+)
+
+eagleeye_users_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-eagleeye-users-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.eagleeye_users.EagleEyeUsersUpdater',
+  schedule = '8,23,38,53 * * * *',
+  tier = 'preferred'
+)
+
+eagleeye_users_updater_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-eagleeye-users-updater-dryrun',
+  jar = 'dal-etl-eagleeye-users-updater.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.eagleeye_users.EagleEyeUsersUpdater',
+  schedule = '8,23,38,53 * * * *',
+)
+
+
+upstream_alert_score_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-upstream-alert-score-updater',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.upstream_alert_scores.UpstreamAlertScoreUpdater',
+  schedule = '6,26,46 * * * *',
+  ram = 8*GB,
+)
+
+upstream_alert_score_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-upstream-alert-score-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.upstream_alert_scores.UpstreamAlertScoreUpdater',
+  schedule = '6,26,46 * * * *',
+  tier = 'preferred',
+  ram = 8*GB,
+)
+
+upstream_alert_score_updater_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-upstream-alert-score-updater-dryrun',
+  jar = 'dal-etl-upstream-alert-score-updater.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.upstream_alert_scores.UpstreamAlertScoreUpdater',
+  schedule = '6,36 * * * *',
+)
+
+
+eagleeye_roles_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-eagleeye-roles-updater',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.eagleeye_roles.EagleEyeRolesUpdater',
+  schedule = '17,47 * * * *',
+)
+
+eagleeye_roles_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-eagleeye-roles-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.eagleeye_roles.EagleEyeRolesUpdater',
+  schedule = '17,47 * * * *',
+  tier = 'preferred'
+)
+
+eagleeye_roles_updater_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-eagleeye-roles-updater-dryrun',
+  jar = 'dal-etl-eagleeye-roles-updater.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.eagleeye_roles.EagleEyeRolesUpdater',
+  schedule = '17,47 * * * *',
+)
+
+
+eagleeye_emailer_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-eagleeye-emailer',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.eagleeye_emailer.EagleEyeEmailerApp',
+  schedule = '27,57 * * * *',
+)
+
+eagleeye_emailer_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-eagleeye-emailer',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.eagleeye_emailer.EagleEyeEmailerApp',
+  schedule = '27,57 17-22 * * *',
+  tier = 'preferred'
+)
+
+eagleeye_emailer_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-eagleeye-emailer-dryrun',
+  jar = 'dal-etl-eagleeye-emailer.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.eagleeye_emailer.EagleEyeEmailerApp',
+  schedule = '27,57 * * * *',
+)
+
+update_search_entries_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-update-search-entries',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.searchentries.UpdateSearchEntries',
+  schedule = '*/5 * * * *',
+  cpu = 4.0,
+  ram = 64*GB,
+)
+
+update_search_entries_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-update-search-entries',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.searchentries.UpdateSearchEntries',
+  schedule = '*/5 * * * *',
+  tier = 'preferred',
+  cpu = 4.0,
+  ram = 64*GB,
+)
+
+update_search_entries_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-update-search-entries-dryrun',
+  jar = 'dal-etl-update-search-entries.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.searchentries.UpdateSearchEntries',
+  schedule = '*/5 * * * *',
+  cpu = 4.0,
+  ram = 32*GB,
+)
+
+presto_flag_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-presto-flag-updater',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.presto_flag_updater.PrestoFlagUpdater',
+  schedule = '18 */4 * * *',
+  cpu = 5.0,
+  ram = 72*GB,
+)
+
+presto_flag_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-presto-flag-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.presto_flag_updater.PrestoFlagUpdater',
+  schedule = '18 */4 * * *',
+  tier = 'preferred',
+  cpu = 5.0,
+  ram = 72*GB,
+)
+
+presto_flag_updater_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-presto-flag-updater-dryrun',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.presto_flag_updater.PrestoFlagUpdater',
+  schedule = '18 */4 * * *',
+  cpu = 3.0,
+  ram = 60*GB,
+)
+
+presto_usage_summary_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-presto-usage-summary',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.presto_usage_summary.PrestoUsageSummary',
+  schedule = '*/30 * * * *',
+)
+
+presto_usage_summary_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-presto-usage-summary',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.presto_usage_summary.PrestoUsageSummary',
+  schedule = '*/30 * * * *',
+  tier = 'preferred'
+)
+
+related_datasets_update_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-related-datasets-updater',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.related_datasets.RelatedDataSetsUpdater',
+  schedule = '20 2,6,10,14,18,22 * * *',
+)
+
+related_datasets_update_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-related-datasets-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.related_datasets.RelatedDataSetsUpdater',
+  # spacing out all the jobs running on a */4 schedule
+  schedule = '20 2,6,10,14,18,22 * * *',
+  tier = 'preferred'
+)
+
+related_datasets_update_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-related-datasets-updater-dryrun',
+  jar = 'dal-etl-related-datasets-updater.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.related_datasets.RelatedDataSetsUpdater',
+  schedule = '20 2,6,10,14,18,22 * * *',
+)
+
+dal_update_from_source_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-update-from-source-app',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.update_from_source.UpdateFromSourceApp',
+  schedule = '20 * * * *',
+  cpu = 6.0,
+  ram = 25*GB,
+  disk = 50*GB
+)
+
+dal_update_from_source_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-update-from-source-app',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.update_from_source.UpdateFromSourceApp',
+  schedule = '20 * * * *',
+  cpu = 6.0,
+  ram = 25*GB,
+  disk = 50*GB,
+  tier = 'preferred'
+)
+
+update_active_dataset_health_reports_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-update-active-dataset-health-reports',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.update_active_dataset_health_reports.UpdateActiveDatasetHealthReports',
+  schedule = '12,42 1 1 1 *',
+  cpu = 4.0,
+  ram = 16*GB,
+)
+
+update_active_dataset_health_reports_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-update-active-dataset-health-reports',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.update_active_dataset_health_reports.UpdateActiveDatasetHealthReports',
+  schedule = '12,42 * * * *',
+  tier = 'preferred',
+  cpu = 4.0,
+  ram = 16*GB,
+)
+
+update_active_dataset_health_reports_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-update-active-dataset-health-reports-dryrun',
+  jar = 'dal-etl-update-active-dataset-health-reports.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.update_active_dataset_health_reports.UpdateActiveDatasetHealthReports',
+  schedule = '12,42 1 1 1 *',
+)
+
+update_physical_dataset_delay_threshold_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-update-physical-dataset-delay-threshold',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.pds_delay_threshold.UpdatePhysicalDatasetDelayThreshold',
+  schedule = '1 1 1 1 *',
+)
+
+update_physical_dataset_delay_threshold_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-update-physical-dataset-delay-threshold-dryrun',
+  jar = 'dal-etl-update-physical-dataset-delay-threshold.jar',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.pds_delay_threshold.UpdatePhysicalDatasetDelayThreshold',
+  schedule = '1 1 1 1 *',
+)
+
+update_physical_dataset_delay_threshold_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-update-physical-dataset-delay-threshold',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.pds_delay_threshold.UpdatePhysicalDatasetDelayThreshold',
+  schedule = '23,53 * * * *',
+  tier = 'preferred'
+)
+
+gcs_segment_clean_up_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-gcs-segment-clean-up',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.gcs_segment_clean_up.GcsSegmentCleanUp',
+  schedule = '1 1 1 1 *',
+)
+
+gcs_segment_clean_up_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-gcs-segment-clean-up-dryrun',
+  jar = 'dal-etl-gcs-segment-clean-up.jar',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.gcs_segment_clean_up.GcsSegmentCleanUp',
+  schedule = '1 1 1 1 *',
+)
+
+gcs_segment_clean_up_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-gcs-segment-clean-up',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.gcs_segment_clean_up.GcsSegmentCleanUp',
+  schedule = '23,53 * * * *',
+)
+
+dataset_twadoop_config_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-dataset-twadoop-config-updater',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.twadoop_config_updater.DatasetTwadoopConfigUpdater',
+  # spacing out all the jobs running on a */4 schedule
+  schedule = '8 3,7,11,15,19,23 * * *',
+  ram = 5*GB,
+  disk = 40*GB
+)
+
+dataset_twadoop_config_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-dataset-twadoop-config-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.twadoop_config_updater.DatasetTwadoopConfigUpdater',
+  # spacing out all the jobs running on a */4 schedule
+  schedule = '8 3,7,11,15,19,23 * * *',
+  tier = 'preferred',
+  ram = 5*GB,
+  disk = 40*GB
+)
+
+dataset_twadoop_config_updater_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-dataset-twadoop-config-updater-dryrun',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.twadoop_config_updater.DatasetTwadoopConfigUpdater',
+  schedule = '8 3,7,11,15,19,23 * * *',
+  ram = 5*GB,
+  disk = 40*GB
+)
+
+update_app_health_reports_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-update-app-health-reports',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false -service.configClass=com.twitter.dal.etl.task.update_app_health_reports.config.StagingConfig',
+  main = 'com.twitter.dal.etl.task.update_app_health_reports.UpdateAppHealthReports',
+  schedule = '16,46 * * * *',
+)
+
+update_app_health_reports_staging_dryrun = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-update-app-health-reports-dryrun',
+  jar = 'dal-etl-update-app-health-reports.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=staging -dryRun=true -service.configClass=com.twitter.dal.etl.task.update_app_health_reports.config.StagingConfig',
+  main = 'com.twitter.dal.etl.task.update_app_health_reports.UpdateAppHealthReports',
+  schedule = '16,46 2 1 * *',
+)
+
+update_app_health_reports_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-update-app-health-reports',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false -service.configClass=com.twitter.dal.etl.task.update_app_health_reports.config.ProdConfig',
+  main = 'com.twitter.dal.etl.task.update_app_health_reports.UpdateAppHealthReports',
+  schedule = '16,46 * * * *',
+  tier = 'preferred'
+)
+
+update_app_health_reports_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-update-app-health-reports-dryrun',
+  jar = 'dal-etl-update-app-health-reports.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true -service.configClass=com.twitter.dal.etl.task.update_app_health_reports.config.ProdConfig',
+  main = 'com.twitter.dal.etl.task.update_app_health_reports.UpdateAppHealthReports',
+  schedule = '16,46 2 1 * *',
+)
+
+dal_dataset_owners_update_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-dal-dataset-owners-updater',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.dal_dataset_owners.DalDatasetOwnersUpdater',
+  schedule = '20,40 * * * *',
+  ram = 64*GB,
+  cpu = 10.0,
+)
+
+dal_dataset_owners_update_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-dal-dataset-owners-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.dal_dataset_owners.DalDatasetOwnersUpdater',
+  schedule = '20,40 * * * *',
+  tier = 'preferred',
+  ram = 64*GB,
+  cpu = 10.0,
+)
+
+dal_dataset_owners_update_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-dal-dataset-owners-updater-dryrun',
+  jar = 'dal-etl-dal-dataset-owners-updater.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.dal_dataset_owners.DalDatasetOwnersUpdater',
+  schedule = '20 */2 * * *',
+  ram = 64*GB,
+  cpu = 10.0,
+)
+
+dasms_permissions_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-dasms-permissions-updater',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false -firstTime 2019-05-13T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.dasms_permissions.DasmsPermissionsUpdater',
+  schedule = '33 10,13,16 * * *',
+)
+
+dasms_permissions_updater_staging_dryrun = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-dasms-permissions-updater-dryrun',
+  jar = 'dal-etl-dasms-permissions-updater.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=staging -dryRun=true -firstTime 2019-05-13T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.dasms_permissions.DasmsPermissionsUpdater',
+  schedule = '33 10,13,16 * * *',
+)
+
+dasms_permissions_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-dasms-permissions-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false -firstTime 2019-05-13T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.dasms_permissions.DasmsPermissionsUpdater',
+  schedule = '33 10,13,16 * * *',
+  tier = 'preferred'
+)
+
+dasms_permissions_updater_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-dasms-permissions-updater-dryrun',
+  jar = 'dal-etl-dasms-permissions-updater.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true -firstTime 2019-05-13T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.dasms_permissions.DasmsPermissionsUpdater',
+  schedule = '33 10,13,16 * * *',
+)
+
+dmo_data_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-dmo-data-updater',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false -firstTime 2019-09-24T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.dmo.DmoDataUpdater',
+  schedule = '19 * * * *',
+)
+
+dmo_data_updater_staging_dryrun = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-dmo-data-updater-dryrun',
+  jar = 'dal-etl-dmo-data-updater.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=staging -dryRun=true -firstTime 2019-09-24T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.dmo.DmoDataUpdater',
+  schedule = '19 * * * *',
+)
+
+dmo_data_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-dmo-data-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false -firstTime 2019-09-24T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.dmo.DmoDataUpdater',
+  schedule = '19 * * * *',
+  tier = 'preferred'
+)
+
+dmo_data_updater_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-dmo-data-updater-dryrun',
+  jar = 'dal-etl-dmo-data-updater.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true -firstTime 2019-09-24T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.dmo.DmoDataUpdater',
+  schedule = '19 * * * *',
+)
+
+# Job updates all root paths that are normalized from existing committed segments
+# It does it by navigating through each dataset
+physical_dataset_root_url_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-physical-dataset-root-url-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.physical_dataset_root_url_updater.PhysicalDatasetRootUrlUpdaterApp',
+  schedule = '15 * * * *',
+  tier = 'preferred'
+)
+
+physical_dataset_root_url_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-physical-dataset-root-url-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.physical_dataset_root_url_updater.PhysicalDatasetRootUrlUpdaterApp',
+  schedule = '15 * * * *',
+)
+
+# This job populates the "path" column  in the dal_physical_dataset table.
+# It only needs to run once to populate all of the columns; after that the job can be removed.
+update_physical_dataset_path_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-update-physical-dataset-path',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.update_physical_dataset_path.UpdatePhysicalDatasetPath',
+  schedule = '30 14 7 1 *',
+)
+
+# This job populates the "path" column  in the dal_physical_dataset table.
+# It only needs to run once to populate all of the columns; after that the job can be removed.
+update_physical_dataset_path_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-update-physical-dataset-path',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.update_physical_dataset_path.UpdatePhysicalDatasetPaths',
+  schedule = '30 14 8 1 *',
+)
+
+dret_jira_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-dret-jira-updater',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.dret_jira.DretJiraUpdater',
+  schedule = '40 * * * *',
+)
+
+dret_jira_updater_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-dret-jira-updater-dryrun',
+  jar = 'dal-etl-dret-jira-updater.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true',
+  main = 'com.twitter.dal.etl.task.dret_jira.DretJiraUpdater',
+  schedule = '12 * * * *',
+)
+
+dret_jira_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-dret-jira-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.dret_jira.DretJiraUpdater',
+  schedule = '10 * * * *',
+)
+
+hdfs_permissions_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-hdfs-dataset-permissions-updater',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.hdfs_dataset_permissions.HdfsDatasetPermissionsUpdater',
+  schedule = '42 10,11,12 * * *',
+)
+
+hdfs_permissions_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-hdfs-dataset-permissions-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.hdfs_dataset_permissions.HdfsDatasetPermissionsUpdater',
+  schedule = '42 10,11,12 * * *',
+)
+
+# This job populates the "path" column and removes trailing slashes in the "root_path" column in the
+# dal_replication_location table. It only needs to run once to populate all of the columns; after
+# that the job can be removed.
+update_replication_location_path_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-update-replication-location-path',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.update_replication_location_path.UpdateReplicationLocationPath',
+  schedule = '5 0 10 12 *',
+)
+
+# This job populates the "path" column and removes trailing slashes in the "root_path" column in the
+# dal_replication_location table. It only needs to run once to populate all of the columns; after
+# that the job can be removed.
+update_replication_location_path_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-update-replication-location-path',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.update_replication_location_path.UpdateReplicationLocationPath',
+  schedule = '33 18 14 12 *',
+)
+
+# One-time cron job that migrates v1 app descriptions and summaries data to v2 staging
+resync_eagleeye_dalv2_dal_apps_summaries_and_descriptions_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-resync-eagleeye-dalv2-dal-apps-summaries-and-descriptions',
+  contact = 'adp-team@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.resync_eagleeye_dalv2_data.ResyncEagleEyeDalAppSummariesAndDescriptionsFromV1toV2',
+  schedule = '0 9 1 1 *',
+  ram = 6*GB,
+)
+
+# One-time cron job that migrates v1 app descriptions and summaries data to v2 prod
+resync_eagleeye_dalv2_dal_apps_summaries_and_descriptions_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-resync-eagleeye-dalv2-dal-apps-summaries-and-descriptions',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.resync_eagleeye_dalv2_data.ResyncEagleEyeDalAppSummariesAndDescriptionsFromV1toV2',
+  schedule = '0 9 1 1 *',
+  ram = 6*GB,
+)
+
+# Cron job that migrates v1 dashboard data to v2 staging
+resync_eagleeye_dalv2_data_dashboards_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-resync-eagleeye-dalv2-data-dashboards',
+  contact = 'adp-team@twitter.com',
+  args = '-env=staging -dryRun=false',
+  main = 'com.twitter.dal.etl.task.resync_eagleeye_dalv2_data.ResyncEagleEyeDashboardDataFromV1ToV2',
+  schedule = '0 0,2,4,6,8 * * *',
+)
+
+# Cron job that migrates v1 dashboard data to v2 prod
+resync_eagleeye_dalv2_data_dashboards_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-resync-eagleeye-dalv2-data-dashboards',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false',
+  main = 'com.twitter.dal.etl.task.resync_eagleeye_dalv2_data.ResyncEagleEyeDashboardDataFromV1ToV2',
+  schedule = '0 0,2,4,6,8 * * *',
+)
+
+strato_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-strato-updater',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false -firstTime 2021-08-03T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.strato.StratoUpdater',
+  schedule = '23 * * * *',
+)
+
+strato_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-strato-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false -firstTime 2021-08-03T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.strato.StratoUpdater',
+  schedule = '23 * * * *',
+  tier = 'preferred'
+)
+
+strato_updater_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-strato-updater-dryrun',
+  jar = 'dal-etl-strato-updater.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true -firstTime 2021-08-03T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.strato.StratoUpdater',
+  schedule = '23 * * * *',
+)
+
+scrubbing_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-scrubbing-updater',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false -firstTime 2021-08-19T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.scrubbing.ScrubbingUpdater',
+  schedule = '10,25,40,55 * * * *',
+)
+
+scrubbing_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-scrubbing-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false -firstTime 2021-08-19T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.scrubbing.ScrubbingUpdater',
+  schedule = '10,25,40,55 * * * *',
+  tier = 'preferred'
+)
+
+scrubbing_updater_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-scrubbing-updater-dryrun',
+  jar = 'dal-etl-scrubbing-updater.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true -firstTime 2021-08-19T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.scrubbing.ScrubbingUpdater',
+  schedule = '40 * * * *',
+)
+
+# Cron job that migrates v1 DAL Apps to v2 staging
+resync_eagleeye_dalv2_dal_apps_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-resync-eagleeye-dalv2-dal-apps',
+  contact = 'adp-team@twitter.com',
+  args = '-env=staging -dryRun=false -firstTime 2021-09-01T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.resync_eagleeye_dalv2_data.ResyncEagleEyeDalAppFromV1ToV2',
+  schedule = '1 1 1 1 *',
+)
+
+# Cron job that migrates v1 DAL Apps data to v2 prod
+resync_eagleeye_dalv2_dal_apps_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-resync-eagleeye-dalv2-dal-apps',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false -firstTime 2021-09-01T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.resync_eagleeye_dalv2_data.ResyncEagleEyeDalAppFromV1ToV2',
+  schedule = '1 1 1 1 *',
+)
+
+retention_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-retention-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=staging -dryRun=false -firstTime 2022-01-20T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.retention.RetentionUpdater',
+  schedule = '3 */8 * * *',
+)
+
+retention_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-retention-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false -firstTime 2022-01-20T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.retention.RetentionUpdater',
+  schedule = '3 */8 * * *',
+)
+
+# Cron job that migrates v1 DAL Apps properties to v2 staging
+resync_eagleeye_dalv2_dal_apps_properties_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-resync-eagleeye-dalv2-dal-apps-properties',
+  contact = 'adp-team@twitter.com',
+  args = '-env=staging -dryRun=false -firstTime 2022-03-25T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.resync_eagleeye_dalv2_data.ResyncEagleEyeDalAppFromV1ToV2',
+  schedule = '33 */3 * * *',
+)
+
+# Cron job that migrates v1 DAL Apps properties to v2 prod
+resync_eagleeye_dalv2_dal_apps_properties_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-resync-eagleeye-dalv2-dal-apps-properties',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false -firstTime 2022-04-03T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.resync_eagleeye_dalv2_data.ResyncEagleEyeDalAppFromV1ToV2',
+  schedule = '33 */3 * * *',
+)
+
+gcs_partly_cloudy_ldap_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-gcs-partly-cloudy-ldap',
+  contact = 'adp-team@twitter.com',
+  args = '-env=staging -dryRun=false -firstTime 2022-05-23T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.gcs_partly_cloudy_ldap.GcsPartlyCloudyLdapUpdater',
+  schedule = '4 */4 * * *',
+)
+
+gcs_partly_cloudy_ldap_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-gcs-partly-cloudy-ldap',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false -firstTime 2022-05-23T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.gcs_partly_cloudy_ldap.GcsPartlyCloudyLdapUpdater',
+  schedule = '50 */4 * * *',
+)
+
+# Cron job that backfills applicationGroupNameId for apps missing the column staging
+populate_application_group_name_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-populate-application-group-name',
+  contact = 'adp-team@twitter.com',
+  args = '-env=staging -dryRun=false -firstTime 2022-05-30T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.application_group_name.PopulateApplicationGroupName',
+  schedule = '11 17 * * *',
+)
+
+# Cron job that backfills applicationGroupNameId for apps missing the column  prod
+populate_application_group_name_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-populate-application-group-name',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false -firstTime 2022-06-01T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.application_group_name.PopulateApplicationGroupName',
+  schedule = '11 17 * * *',
+)
+
+# Cron job that updates DAL with ECES output data like the Compliance State per dataset
+eces_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-eces-updater',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false -firstTime 2022-07-25T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.eces.EcesUpdater',
+  cpu = 10.0,
+  ram = 20*GB,
+  schedule = '0,15,30,45 * * * *',
+)
+
+# Cron job that updates DAL with ECES output data like the Compliance State per dataset
+eces_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-eces-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false -firstTime 2022-07-25T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.eces.EcesUpdater',
+  cpu = 10.0,
+  ram = 20*GB,
+  schedule = '8,23,38,53 * * * *',
+  tier = 'preferred'
+)
+
+# Cron job that updates DAL with ECES output data like the Compliance State per dataset
+eces_updater_prod_dryrun = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-eces-updater-dryrun',
+  jar = 'dal-etl-eces-updater.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=true -firstTime 2022-07-25T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.eces.EcesUpdater',
+  cpu = 10.0,
+  ram = 20*GB,
+  schedule = '6,21,36,51 * * * *',
+)
+
+# Cron job that backfills DAL RetentionInfo API for datasets
+retention_info_backfill_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-retention-info-backfill',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false -firstTime 2022-08-25T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.retention_info.RetentionInfoBackfill',
+  schedule = '13,28,43,58 * * * *',
+)
+
+# Cron job that backfills DAL RetentionInfo API for datasets
+retention_info_backfill_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-retention-info-backfill',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false -firstTime 2022-08-25T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.retention_info.RetentionInfoBackfill',
+  schedule = '13,28,43,58 * * * *',
+  tier = 'preferred'
+)
+
+# Cron job that updates DAL with Collibra Records Classes
+collibra_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-collibra-updater',
+  contact = 'adp-team-staging@twitter.com',
+  args = '-env=staging -dryRun=false -firstTime 2022-07-25T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.collibra.CollibraUpdater',
+  schedule = '50 * * * *',
+)
+
+# Cron job that updates DAL with Collibra Records Classes
+collibra_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-collibra-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false -firstTime 2022-07-25T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.collibra.CollibraUpdater',
+  schedule = '50 * * * *',
+  tier = 'preferred'
+)
+
+# Cron job that updates DAL with ScaldingSourcePath, CraneSourcePath, and CodeLocationUpdateTime
+application_property_updater_prod = Profile(
+  role = 'dal',
+  environment = 'prod',
+  name = 'dal-etl-application-properties-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=prod -dryRun=false -firstTime 2022-09-11T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.application_property_updater.ApplicationSourcePropertiesUpdater',
+  schedule = '6,12,18,24,30 * * * *',
+  tier = 'preferred',
+  cpu = 10.0, # Using parallelism, hence the large cpu value
+  ram = 50*GB,
+  disk = 50*GB
+)
+
+# Cron job that updates DAL with ScaldingSourcePath, CraneSourcePath, and CodeLocationUpdateTime
+application_property_updater_staging = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-application-properties-updater',
+  contact = 'adp-team@twitter.com',
+  args = '-env=staging -dryRun=false -firstTime 2022-09-11T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.application_property_updater.ApplicationSourcePropertiesUpdater',
+  schedule = '6,12,18,24,30 * * * *',
+  cpu = 10.0, # Using parallelism, hence the large cpu value
+  ram = 50*GB,
+  disk = 50*GB
+)
+
+# Cron job that updates DAL with ScaldingSourcePath, CraneSourcePath, and CodeLocationUpdateTime
+application_property_updater_staging_dryrun = Profile(
+  role = 'dal-staging',
+  environment = 'staging',
+  name = 'dal-etl-application-properties-updater-dryrun',
+  jar = 'dal-etl-application-properties-updater.jar',
+  contact = 'adp-team@twitter.com',
+  args = '-env=staging -dryRun=true -firstTime 2022-09-11T00:00:00Z',
+  main = 'com.twitter.dal.etl.task.application_property_updater.ApplicationSourcePropertiesUpdater',
+  schedule = '6,12,18,24,30 * * * *',
+  cpu = 10.0, # Using parallelism, hence the large cpu value
+  ram = 50*GB,
+  disk = 50*GB
+)
+
+jobs = [
+  get_etl_job(app_deactivation_staging),
+  get_etl_job(app_deactivation_prod),
+  get_etl_job(app_deactivation_prod_dryrun),
+
+  get_etl_job(dataset_deactivation_staging),
+  get_etl_job(dataset_deactivation_prod),
+  get_etl_job(dataset_deactivation_prod_dryrun),
+
+  get_etl_job(dataset_taxonomy_loader_staging),
+  get_etl_job(dataset_taxonomy_loader_prod),
+  get_etl_job(dataset_taxonomy_loader_prod_dryrun),
+
+  get_etl_job(graph_summaries_staging),
+  get_etl_job(graph_summaries_prod),
+  get_etl_job(graph_summaries_prod_dryrun),
+
+  get_etl_job(datasource_property_updates_staging),
+  get_etl_job(datasource_property_updates_prod),
+  get_etl_job(datasource_property_updates_prod_dryrun),
+
+  get_etl_job(data_usage_update_staging),
+  get_etl_job(data_usage_update_prod),
+  get_etl_job(data_usage_update_prod_dryrun),
+
+  get_etl_job(eagleeye_users_updater_staging),
+  get_etl_job(eagleeye_users_updater_prod),
+  get_etl_job(eagleeye_users_updater_prod_dryrun),
+
+  get_etl_job(upstream_alert_score_updater_staging),
+  get_etl_job(upstream_alert_score_updater_prod),
+  get_etl_job(upstream_alert_score_updater_prod_dryrun),
+
+  get_etl_job(eagleeye_roles_updater_staging),
+  get_etl_job(eagleeye_roles_updater_prod),
+  get_etl_job(eagleeye_roles_updater_prod_dryrun),
+
+  get_etl_job(eagleeye_emailer_staging),
+  get_etl_job(eagleeye_emailer_prod),
+  get_etl_job(eagleeye_emailer_prod_dryrun),
+
+  get_etl_job(update_search_entries_staging),
+  get_etl_job(update_search_entries_prod),
+  get_etl_job(update_search_entries_prod_dryrun),
+
+  get_etl_job(presto_flag_updater_staging),
+  get_etl_job(presto_flag_updater_prod),
+  get_etl_job(presto_flag_updater_prod_dryrun),
+
+  get_etl_job(presto_usage_summary_staging),
+  get_etl_job(presto_usage_summary_prod),
+
+  get_etl_job(related_datasets_update_staging),
+  get_etl_job(related_datasets_update_prod),
+  get_etl_job(related_datasets_update_prod_dryrun),
+
+  get_etl_job(dal_update_from_source_staging, with_source_repo=True),
+  get_etl_job(dal_update_from_source_prod, with_source_repo=True),
+
+  get_etl_job(update_active_dataset_health_reports_staging),
+  get_etl_job(update_active_dataset_health_reports_prod),
+  get_etl_job(update_active_dataset_health_reports_prod_dryrun),
+
+  get_etl_job(update_physical_dataset_delay_threshold_staging),
+  get_etl_job(update_physical_dataset_delay_threshold_prod_dryrun),
+  get_etl_job(update_physical_dataset_delay_threshold_prod),
+
+  get_etl_job(gcs_segment_clean_up_staging),
+  get_etl_job(gcs_segment_clean_up_prod_dryrun),
+  get_etl_job(gcs_segment_clean_up_prod),
+
+  get_etl_job(dataset_twadoop_config_updater_staging, with_source_repo=True),
+  get_etl_job(dataset_twadoop_config_updater_prod, with_source_repo=True),
+  get_etl_job(dataset_twadoop_config_updater_prod_dryrun, with_source_repo=True),
+
+  get_etl_job(update_app_health_reports_staging),
+  get_etl_job(update_app_health_reports_staging_dryrun),
+  get_etl_job(update_app_health_reports_prod),
+  get_etl_job(update_app_health_reports_prod_dryrun),
+
+  get_etl_job(dal_dataset_owners_update_staging),
+  get_etl_job(dal_dataset_owners_update_prod_dryrun),
+  get_etl_job(dal_dataset_owners_update_prod),
+
+  get_etl_job(dasms_permissions_updater_staging),
+  get_etl_job(dasms_permissions_updater_staging_dryrun),
+  get_etl_job(dasms_permissions_updater_prod),
+  get_etl_job(dasms_permissions_updater_prod_dryrun),
+
+  get_etl_job(dmo_data_updater_staging),
+  get_etl_job(dmo_data_updater_staging_dryrun),
+  get_etl_job(dmo_data_updater_prod),
+  get_etl_job(dmo_data_updater_prod_dryrun),
+
+  get_etl_job(physical_dataset_root_url_updater_staging),
+  get_etl_job(physical_dataset_root_url_updater_prod),
+
+  get_etl_job(update_physical_dataset_path_staging),
+  get_etl_job(update_physical_dataset_path_prod),
+
+  get_etl_job(dret_jira_updater_staging),
+  get_etl_job(dret_jira_updater_prod),
+  get_etl_job(dret_jira_updater_prod_dryrun),
+
+  get_etl_job(hdfs_permissions_updater_staging),
+  get_etl_job(hdfs_permissions_updater_prod),
+
+  get_etl_job(update_replication_location_path_staging),
+  get_etl_job(update_replication_location_path_prod),
+
+  get_etl_job(resync_eagleeye_dalv2_dal_apps_summaries_and_descriptions_staging),
+  get_etl_job(resync_eagleeye_dalv2_dal_apps_summaries_and_descriptions_prod),
+
+  get_etl_job(resync_eagleeye_dalv2_data_dashboards_staging),
+  get_etl_job(resync_eagleeye_dalv2_data_dashboards_prod),
+
+  get_etl_job(strato_updater_staging),
+  get_etl_job(strato_updater_prod),
+  get_etl_job(strato_updater_prod_dryrun),
+
+  get_etl_job(scrubbing_updater_staging),
+  get_etl_job(scrubbing_updater_prod),
+  get_etl_job(scrubbing_updater_prod_dryrun),
+
+  get_etl_job(resync_eagleeye_dalv2_dal_apps_staging),
+  get_etl_job(resync_eagleeye_dalv2_dal_apps_prod),
+
+  get_etl_job(retention_updater_staging),
+  get_etl_job(retention_updater_prod),
+
+  get_etl_job(resync_eagleeye_dalv2_dal_apps_properties_staging),
+  get_etl_job(resync_eagleeye_dalv2_dal_apps_properties_prod),
+
+  get_etl_job(gcs_partly_cloudy_ldap_staging),
+  get_etl_job(gcs_partly_cloudy_ldap_prod),
+
+  get_etl_job(populate_application_group_name_staging),
+  get_etl_job(populate_application_group_name_prod),
+
+  get_etl_job(eces_updater_staging),
+  get_etl_job(eces_updater_prod),
+  get_etl_job(eces_updater_prod_dryrun),
+
+  get_etl_job(retention_info_backfill_staging),
+  get_etl_job(retention_info_backfill_prod),
+
+  get_etl_job(collibra_updater_staging),
+  get_etl_job(collibra_updater_prod),
+
+  get_etl_job(application_property_updater_prod, with_source_repo=True),
+  get_etl_job(application_property_updater_staging, with_source_repo=True),
+  get_etl_job(application_property_updater_staging_dryrun, with_source_repo=True),
+]

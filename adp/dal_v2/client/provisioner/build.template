@@ -1,0 +1,26 @@
+scala_library(
+  name = 'provisioner',
+  dependencies = [
+    'src/scala/com/twitter/dal/provisioner',
+    DEPS_TARGETS
+  ],
+  sources = ['*.scala'],
+)
+
+# Provision log category / hadoop datasets in DAL
+hadoop_binary(
+  name = 'provisioner-bin',
+  main = 'com.twitter.dal.provisioner.DALDatasetProvisioner',
+  dependencies = [
+    ':provisioner'
+  ],
+)
+
+# Provision and Update Sparrow DAL entries to link Sparrow Dataset to respective log category
+hadoop_binary(
+  name = 'sparrow-provisioner-matcher-bin',
+  main = 'com.twitter.dal.provisioner.DALDatasetSparrowProvisionerMatcher',
+  dependencies = [
+    ':provisioner'
+  ],
+)

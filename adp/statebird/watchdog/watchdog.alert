@@ -1,0 +1,66 @@
+# To test the alerts do something like this:
+#  easykb smf1 --test -f adp/statebird/watchdog/watchdog.alert --target smf1.prod
+# To update the alerts do something like this:
+#  easykb smf1 -f adp/statebird/watchdog/watchdog.alert --target smf1.prod --team adp-team
+#  easykb atla -f adp/statebird/watchdog/watchdog.alert --target atla.prod --team adp-team
+# To see the alerts go here:
+#  https://observe.twitter.biz/alerts/statebird-watchdog-statebird-prod?zone=smf1
+#  https://observe.twitter.biz/alerts/statebird-watchdog-statebird-prod?zone=atla
+
+---
+target: smf1.prod
+pagerduty: true
+username: statebird
+email: adp-team
+env: prod
+url: https://confluence.twitter.biz/display/ANALYTICS/Statebird+Administrators+Guide#StatebirdAdministratorsGuide-StatebirdWatchdogServerTroubleshooting
+gc_high: "[10K | 15K]"
+active_batch_run_minimum: "[50 | 50]"
+
+---
+target: atla.prod
+pagerduty: true
+username: statebird
+email: adp-team
+env: prod
+url: https://confluence.twitter.biz/display/ANALYTICS/Statebird+Administrators+Guide#StatebirdAdministratorsGuide-StatebirdWatchdogServerTroubleshooting
+gc_high: "[10K | 15K]"
+active_batch_run_minimum: "[50 | 50]"
+
+---
+alert {
+  name: statebird-watchdog-{{{username}}}.{{{env}}}
+  new-email: true
+  enabled: true
+
+  monitors {
+
+    -- GC is high
+    URL = {{{url}}}
+    cuckoo(max(default(0, rate(ts(sum, {{{username}}}.{{{env}}}.statebird-watchdog, members(sd.{{{username}}}.{{{env}}}.statebird-watchdog), jvm/gc/msec))))) > {{{gc_high}}} for 3 minutes
+
+    -- Active BatchRuns is too low
+    URL = {{{url}}}
+    cuckoo(default(0, rate(ts(sum, {{{username}}}.{{{env}}}.statebird-watchdog, members(sd.{{{username}}}.{{{env}}}.statebird-watchdog), watch_dog/active_batch_runs/)))) < {{{active_batch_run_minimum}}} for 10 minutes
+
+    -- Too Many Timeout Exceptions
+    URL = {{{url}}}
+    cuckoo(default(0, rate(ts(sum, {{{username}}}.{{{env}}}.statebird-watchdog, members(sd.{{{username}}}.{{{env}}}.statebird-watchdog), watch_dog/check_and_wait/timeout_exceptions/)))) > 1 for 10 minutes
+
+    -- Too Many Other Exceptions
+    URL = {{{url}}}
+    cuckoo(default(0, rate(ts(sum, {{{username}}}.{{{env}}}.statebird-watchdog, members(sd.{{{username}}}.{{{env}}}.statebird-watchdog), watch_dog/check_and_wait/other_exceptions/)))) > 1 for 10 minutes
+  }
+
+  actions {
+    warning {
+    }
+    critical {
+      email: {{{email}}}@twitter.com
+
+      {{#pagerduty}}
+      email-bcc: adp@twittertcc.pagerduty.com
+      {{/pagerduty}}
+    }
+  }
+}

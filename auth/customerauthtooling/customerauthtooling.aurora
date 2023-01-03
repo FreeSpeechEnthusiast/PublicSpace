@@ -1,0 +1,170 @@
+import os
+
+SERVICE_NAME = 'customerauthtooling'
+SERVICE_ROLE = 'customerauthtooling'
+
+#
+# The `opportunistic_tls_level` property represents this service's expected level of security
+# for mTLS (go/service-auth). When the server's `opportunistic_tls_level` is set to `required`,
+# clients that try to communicate with this service will be required to be configured with mTLS and
+# will not be allowed to communicate with this service, otherwise.
+#
+# If you want to allow clients without Service Identifiers, setting `opportunistic_tls_level` to
+# `desired` will allow for both mTLS secured and non-mTLS insecure clients to connect to this
+# service.
+#
+# Note: The `opportunistic_tls_level` is not used when configuring clients that this
+# service uses to communicate with other Twitter services. Therefore, setting a level of `required`
+# will NOT make it so that your service's clients can only talk to mTLS enabled services. It
+# strictly controls the security level for this service.
+#
+
+class Profile(Struct):
+  role = Default(String, SERVICE_ROLE)
+  package_label = Default(String, '')
+  package_version = Default(String, 'latest')
+  job_name = Default(String, SERVICE_NAME)
+  cmdline_flags = Default(String, '')
+  opportunistic_tls_level = Default(String, 'required')
+  client_opportunistic_tls_level = Default(String, 'required')
+  log_level = Default(String, 'INFO')
+
+resources = Resources(
+  cpu = 2,
+  ram = 4*GB,
+  disk = 10*GB
+)
+
+install = Packer.install(
+  role = '{{profile.role}}',
+  name = '{{profile.job_name}}{{profile.package_label}}',
+  version = '{{profile.package_version}}'
+)
+
+main = JVMProcess(
+  name = SERVICE_NAME,
+  jvm = Java11(
+    heap = 1*GB,
+    extra_log_selectors = [
+      'profiling+tenuring',
+      'profiling+concgc',
+    ],
+    extra_jvm_flags = '-Djava.net.preferIPv4Stack=true'
+      ' -XX:ErrorFile=java_error%p.log'
+      ' -Dlog_level={{profile.log_level}}'
+      ' -Dlog.access.output=access.log'
+      ' -Dlog.service.output={{name}}.log'
+      # set a reasonable 10 MB upper limit on the max incoming message size
+      # https://confluence.twitter.biz/display/CSL/Thrift+Message+Size+Limit
+      ' -Dorg.apache.thrift.readLength=10000000'
+      ' -Dlog.lens.tag={{cluster}}/{{role}}/{{environment}}/{{name}}'
+      ' -Dlog.lens.index={{profile.job_name}}'
+  ),
+  arguments = '-jar {{name}}.jar'
+    ' -thrift.name={{name}}'
+    ' -decider.base=/config/decider.yml'
+    ' -thrift.clientId={{name}}'
+    ' -thrift.port=:{{thermos.ports[thrift]}}'
+    ' -admin.port=:{{thermos.ports[admin]}}'
+    ' -service.identifier={{role}}:{{name}}:{{environment}}:{{cluster}}'
+    ' -opportunistic.tls.level={{profile.opportunistic_tls_level}}'
+    ' -com.twitter.finatra.mtls.client.modules.defaultOpportunisticTlsLevel={{profile.client_opportunistic_tls_level}}'
+    ' -kite.client.env={{environment}}'
+    ' {{profile.cmdline_flags}}',
+  resources = resources
+)
+
+# Make stats available for viz. See http://go/absorber for details.
+stats = Stats(
+  library = 'metrics',
+  port = 'admin'
+)
+
+job_template = Service(
+  name = '{{profile.job_name}}',
+  role = '{{profile.role}}',
+  contact = '{{profile.role}}@twitter.com',
+  constraints = {'rack': 'limit:1', 'host': 'limit:1'}, # Change as appropriate
+  announce = Announcer(
+    primary_port = 'thrift',
+    portmap = {'aurora': 'admin', 'health': 'admin'}
+  ),
+  task = Task(
+    resources = resources,
+    name = SERVICE_NAME,
+    processes = [install, main, stats],
+    constraints = order(install, main)
+  ),
+  health_check_config = HealthCheckConfig(
+    initial_interval_secs = 120
+  ),
+  update_config = UpdateConfig(
+    watch_secs = 0  # see go/aurora-health-checked-updates for an explanation of this
+  )
+)
+
+PRODUCTION = Profile()
+
+STAGING = Profile(
+  cmdline_flags = ''
+)
+
+DEVEL = STAGING(
+  # In this example, you will only be able to deploy to devel under your username.
+  # When you have a shared role, you may prefer the following to simplify chargeback,
+  # deployment automation, and service-to-service authentication.
+  #
+  #  role = SERVICE_ROLE
+  #  job_name = SERVICE_NAME + "_" + os.environ['USER']
+  #
+
+  role = os.environ['USER'],
+  job_name = SERVICE_NAME,
+  package_label = '-devel',
+  log_level = 'DEBUG',
+
+  #  We disable Service-to-Service Authentication (s2s) in devel to allow for quickly
+  #  testing in Aurora. The end goal for all of Twitter is that this be set to 'required' and is
+  #  configured as such for the STAGING and PRODUCTION profiles. You will likely want to modify
+  #  the DEVEL Profile after provisioning your service's certs.
+  opportunistic_tls_level = 'desired'
+)
+
+prod_job = job_template(
+  tier = 'preferred',
+  instances = 3,
+  environment = 'prod'
+).bind(profile = PRODUCTION)
+
+staging_job = job_template(
+  instances = 1,
+  environment = 'staging'
+).bind(profile = STAGING)
+
+devel_job = job_template(
+  instances = 1,
+  environment = 'devel'
+).bind(profile = DEVEL)
+
+production_update_config = UpdateConfig(
+  batch_size = 1,
+  max_per_shard_failures = 0,
+  max_total_failures = 0,
+  wait_for_batch_completion = True
+)
+
+staging_update_config = production_update_config(
+  batch_size = 1,
+  max_total_failures = 0
+)
+
+devel_update_config = production_update_config(
+  batch_size = 1,
+  max_total_failures = 0
+)
+
+jobs = []
+for cluster in ['atla', 'smf1', 'pdxa']:
+  jobs.append(prod_job(cluster = cluster, update_config = production_update_config))
+  jobs.append(staging_job(cluster = cluster, update_config = staging_update_config))
+  jobs.append(devel_job(cluster = cluster, update_config = devel_update_config))

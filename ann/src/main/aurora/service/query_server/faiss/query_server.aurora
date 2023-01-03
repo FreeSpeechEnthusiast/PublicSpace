@@ -1,0 +1,202 @@
+import os
+
+
+CPU=int(os.environ['CPU'])
+RAM_GB=int(os.environ['RAM_GB'])
+DISK_GB=int(os.environ['DISK_GB'])
+HEAP_GB=int(os.environ['HEAP_GB'])
+NEW_GEN_GB=int(os.environ['NEW_GEN_GB'])
+METASPACE_MB=int(os.environ['METASPACE_MB'])
+INSTANCES=int(os.environ['INSTANCES'])
+
+class Profile(Struct):
+  log_level = Default(String, 'INFO')
+  dimension = Required(Integer)
+  index_directory = Required(String)
+  refreshable = Default(Boolean, False)
+  hadoop_cluster = Default(String, 'dw2-smf1')
+  jar = Default(String, 'faiss-query-server.jar')
+  name = Required(String)
+  role = Required(String)
+  id_type = Required(String)
+  metric = Required(String)
+  min_index_size_byte = Default(Integer, 0)
+  max_index_size_byte = Default(Integer, 1000000000000) ## 1TB
+  packer_role = Required(String)
+  packer_package = Required(String)
+  packer_version = Required(String)
+
+resources = Resources(
+  cpu = CPU,
+  ram = RAM_GB * GB,
+  disk = DISK_GB * GB
+)
+
+install = Packer.install(
+  name='{{profile.packer_package}}',
+  role='{{profile.packer_role}}',
+  version='{{profile.packer_version}}'
+)
+
+packer_rlibs = Packer.install(
+  name='gcc-10.1.0-stdlib',
+  role='ann-platform',
+  version='latest'
+)
+
+main = HadoopProcess(
+  name = '{{profile.name}}',
+  jvm = Java11(
+    heap = HEAP_GB * GB,
+    new_gen = NEW_GEN_GB * GB,
+    metaspace = METASPACE_MB * MB,
+    jit = 'graal',
+    jvm_environment = {
+      'HADOOP_USER_CLASSPATH_FIRST': 'true',
+      'HADOOP_CLASSPATH': '{{profile.jar}}:libs/*:',
+    },
+    extra_log_selectors = [
+      'profiling+tenuring',
+      'profiling+concgc',
+    ],
+    extra_jvm_flags = '-Djava.net.preferIPv4Stack=true'
+      ' -XX:ErrorFile=java_error%p.log'
+      ' -XX:CMSInitiatingOccupancyFraction=80'
+      ' -XX:+UseCMSInitiatingOccupancyOnly'
+      ' -Dlog.level={{profile.log_level}}'
+      ' -Dlog.access.output=log/access.log'
+      ' -Dlog.service.output=log/service.log'
+      ' -Dorg.apache.thrift.readLength=10000000'
+      ' -Dlog.lens.tag={{cluster}}/{{role}}/{{environment}}/{{name}}'
+      ' -Dlog.lens.category=loglens'
+      ' -Dlog.lens.index={{role}}_{{name}}_{{environment}}'
+  ),
+
+  hadoop = Hadoop(config='/etc/hadoop/hadoop-conf-{{profile.hadoop_cluster}}'),
+
+  arguments = ' '.join([
+      'jar {{profile.jar}}',
+      '-dimension {{profile.dimension}}',
+      '-index_directory hdfs://{{profile.index_directory}}',
+      '-metric {{profile.metric}}',
+      '-id_type {{profile.id_type}}',
+      '-refreshable={{profile.refreshable}}',
+      '-min_index_size_byte={{profile.min_index_size_byte}}',
+      '-max_index_size_byte={{profile.max_index_size_byte}}',
+      '-service.identifier={{role}}:{{profile.name}}:{{environment}}:{{cluster}}',
+      '-environment={{environment}}',
+      '-decider.base=/config/hnsw_query_server_decider.yml',
+      '-decider.overlay=/config/hnsw_query_server_decider.yml',
+      '-thrift.port=:{{thermos.ports[thrift]}}',
+      '-admin.port=:{{thermos.ports[http]}}',
+      '-dtab.add=\'' + ';'.join([]) + '\'',
+      '-opportunistic.tls.level=required',
+  ]),
+  resources = resources
+)
+
+# Make stats available for viz. See http://go/absorber for details.
+stats = Stats(
+  library = 'metrics',
+  port = 'admin'
+)
+
+install_tracker = Packer.install(
+  name = "sessiontracker",
+  role =  "cortex",
+  version = "latest"
+)
+
+run_tracker = Process(
+  name = "session_tracker",
+  resources = Resources(cpu = 1, ram = 200*MB, disk = 500*MB),
+  ephemeral = True,
+  cmdline = 'chmod +x sessiontracker.pex && '
+            './sessiontracker.pex '
+            '--session_type ann_query_service '
+            '--owner {{role}} '
+            '--job_key {{cluster}}/{{role}}/{{environment}}/{{profile.name}} '
+            '--instance_num {{mesos.instance}} '
+            '--embedding_dimension {{profile.dimension}} '
+            '--relative_directory_path {{profile.index_directory}} '
+            '--hadoop_cluster {{profile.hadoop_cluster}} '
+            '--index_type {{profile.id_type}} '
+            '--distance_metric {{profile.metric}} '
+            '--is_hot_swapping_enabled {{profile.refreshable}}'
+)
+
+job_template = Service(
+  name = '{{profile.name}}',
+  role = '{{profile.role}}',
+  contact = '{}@twitter.com'.format(os.environ['USER']),
+  constraints = {'rack': 'limit:1', 'host': 'limit:1'}, # Change as appropriate
+  announce = Announcer(
+    primary_port = 'thrift',
+    portmap = {'aurora': 'http', 'admin': 'http', 'health': 'http'}
+  ),
+  task = Task(
+    resources = resources,
+    name = '{{profile.name}}',
+    processes = [install, main, stats, install_tracker, run_tracker, packer_rlibs],
+    constraints = order(install, main) + order(install_tracker, run_tracker) + order(packer_rlibs, main),
+  ),
+  health_check_config = HealthCheckConfig(
+    initial_interval_secs = 3600,
+    interval_secs = 30,
+    max_consecutive_failures = 3,
+    min_consecutive_successes = 1
+  ),
+)
+
+prod_update_config = UpdateConfig(
+  batch_size = INSTANCES / 5 + 1,
+  watch_secs = 0, # https://confluence.twitter.biz/display/~sshanmugham/Health+Checked+Updates
+  max_per_shard_failures = 2,
+  max_total_failures = INSTANCES / 10,
+  rollback_on_failure = False
+)
+
+staging_update_config = UpdateConfig(
+  batch_size = 1,
+  watch_secs = 0,
+  max_per_shard_failures = 1,
+  max_total_failures = 0,
+  rollback_on_failure = True
+)
+
+devel_update_config = UpdateConfig(
+  batch_size = 1,
+  watch_secs = 0,
+  max_per_shard_failures = 1,
+  max_total_failures = 0,
+  rollback_on_failure = True
+)
+
+PRODUCTION = Profile()
+STAGING = Profile()
+DEVEL = Profile(log_level = 'DEBUG')
+
+prod_job = job_template(
+  tier = 'preferred',
+  environment = 'prod',
+  instances = INSTANCES,
+  update_config = prod_update_config,
+).bind(profile = PRODUCTION)
+
+staging_job = job_template(
+  environment = 'staging',
+  instances = INSTANCES,
+  update_config = staging_update_config,
+).bind(profile = STAGING)
+
+devel_job = job_template(
+  environment = 'devel',
+  instances = INSTANCES,
+  update_config = devel_update_config,
+).bind(profile = DEVEL)
+
+jobs = []
+for cluster in ['atla', 'smf1', 'pdxa']:
+  jobs.append(devel_job(cluster = cluster))
+  jobs.append(staging_job(cluster = cluster))
+  jobs.append(prod_job(cluster = cluster))

@@ -1,0 +1,42 @@
+java_library(
+    name = "swig-selftest-local",
+    sources = ["*.java"],
+    compiler_option_sets = ["fatal_warnings"],
+    platform = "java11",
+    tags = [
+        "visibility://visibility:private",
+    ],
+    dependencies = [
+        "ann/src/main/java/com/twitter/ann/faiss/swig:swig-local",
+    ],
+)
+
+jvm_binary(
+    name = "swig-selftest-binary-local",
+    main = "com.twitter.ann.faiss.selftest.SelfTest",
+    compiler_option_sets = ["fatal_warnings"],
+    runtime_platform = "java11",
+    dependencies = [
+        ":swig-selftest-local",
+    ],
+)
+
+java_library(
+    name = "swig-selftest-artifactory",
+    sources = ["*.java"],
+    compiler_option_sets = ["fatal_warnings"],
+    platform = "java11",
+    dependencies = [
+        "ann/src/main/java/com/twitter/ann/faiss/swig:swig-artifactory",
+    ],
+)
+
+jvm_binary(
+    name = "swig-selftest-binary-artifactory",
+    main = "com.twitter.ann.faiss.selftest.SelfTest",
+    compiler_option_sets = ["fatal_warnings"],
+    runtime_platform = "java11",
+    dependencies = [
+        ":swig-selftest-artifactory",
+    ],
+)

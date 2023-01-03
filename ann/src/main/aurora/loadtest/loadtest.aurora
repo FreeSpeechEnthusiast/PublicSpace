@@ -1,0 +1,138 @@
+import os
+
+class Profile(Struct):
+  name                 = Required(String)
+  jar                  = Default(String, 'ann-loadtest.jar')
+  role                 = Required(String)
+  environment          = Required(String)
+  instances            = Default(Integer, 1)
+  hadoop_cluster       = Default(String, 'dw2-smf1')
+  truth_set_dir        = Default(String, '')
+  query_set_dir        = Default(String, '')
+  index_set_dir        = Default(String, '')
+  query_id_type        = Default(String, '')
+  index_id_type        = Required(String)
+  number_of_neighbors  = Required(String)
+  embedding_dimension  = Required(Integer)
+  algo                 = Required(String)
+  metric               = Required(String)
+  annoy_num_trees      = Default(Integer, 40)
+  annoy_num_of_nodes_to_explore = Default(String, '2000,3000,4000')
+  hnsw_ef_construction = Default(Integer, 200)
+  hnsw_ef              = Default(String, '200,300,400')
+  hnsw_max_m           = Default(String, 16)
+  faiss_nprobe         = Default(String, '1')
+  faiss_quantizerEf          = Default(String, '0')
+  faiss_quantizerKfactorRF    = Default(String, '0')
+  faiss_quantizerNprobe      = Default(String, '0')
+  faiss_ht                   = Default(String, '0')
+  concurrency_level    = Default(Integer, 8)
+  qps                  = Required(Integer)
+  loadtest_type        = Required(String)
+  service_destination  = Default(String, '')
+  with_random_queries  = Default(Boolean, False)
+  random_queries_count = Default(Integer, 50000)
+  random_embedding_min_value = Default(Float, -1.0)
+  random_embedding_max_value = Default(Float, 1.0)
+  duration_sec         = Default(Integer, 60 * 10)
+  packer_role          = Default(String, "cortex")
+  packer_package       = Default(String, "ann-loadtest-release")
+  packer_version       = Default(String, "latest")
+
+
+resources_config = Resources(cpu = 32, ram = 150*GB, disk = 30*GB)
+
+install = Packer.install(
+  name='{{profile.packer_package}}',
+  role='{{profile.packer_role}}',
+  version='{{profile.packer_version}}'
+)
+
+runner_process = HadoopProcess(
+  name = '{{profile.name}}_process',
+  arguments = ' '.join([
+    'jar {{profile.jar}}',
+    'com.twitter.ann.service.loadtest.AnnLoadTestMain',
+    '-admin.port=:{{thermos.ports[stats]}}',
+    '-service.identifier={{role}}:{{profile.name}}:{{environment}}:{{cluster}}',
+    '-algo={{profile.algo}}',
+    '-query_id_type={{profile.query_id_type}}',
+    '-index_id_type={{profile.index_id_type}}',
+    '-metric={{profile.metric}}',
+    '-qps={{profile.qps}}',
+    '-duration_sec={{profile.duration_sec}}',
+    '-truth_set_dir={{profile.truth_set_dir}}',
+    '-query_set_dir={{profile.query_set_dir}}',
+    '-index_set_dir={{profile.index_set_dir}}',
+    '-number_of_neighbors={{profile.number_of_neighbors}}',
+    '-concurrency_level={{profile.concurrency_level}}',
+    '-loadtest_type={{profile.loadtest_type}}',
+    '-service_destination={{profile.service_destination}}',
+    '-embedding_dimension={{profile.embedding_dimension}}',
+    '-annoy_num_trees={{profile.annoy_num_trees}}',
+    '-annoy_num_of_nodes_to_explore={{profile.annoy_num_of_nodes_to_explore}}',
+    '-hnsw_ef_construction={{profile.hnsw_ef_construction}}',
+    '-hnsw_ef={{profile.hnsw_ef}}',
+    '-hnsw_max_m={{profile.hnsw_max_m}}',
+    '-with_random_queries={{profile.with_random_queries}}',
+    '-random_embedding_min_value={{profile.random_embedding_min_value}}',
+    '-random_embedding_max_value={{profile.random_embedding_max_value}}',
+    '-random_queries_count={{profile.random_queries_count}}',
+    '-faiss_nprobe={{profile.faiss_nprobe}}',
+    '-faiss_quantizerEf={{profile.faiss_quantizerEf}}',
+    '-faiss_quantizerKfactorRF={{profile.faiss_quantizerKfactorRF}}',
+    '-faiss_quantizerNprobe={{profile.faiss_quantizerNprobe}}',
+    '-faiss_ht={{profile.faiss_ht}}',
+  ]),
+  jvm = Java8(
+    metaspace = 2048 * MB,
+    extra_jvm_flags = ' '.join([
+      '-Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address={{thermos.ports[debug]}} -Dlog.level=INFO',
+    ]),
+    jvm_environment = {
+      'HADOOP_CLASSPATH': '{{profile.jar}}:libs/*:',
+    }
+  ),
+  resources = resources_config,
+  hadoop = Hadoop(config='/etc/hadoop/hadoop-conf-{{profile.hadoop_cluster}}')
+)
+
+runner_task = SequentialTask(
+  resources = resources_config,
+  processes = [install, runner_process]
+)
+
+runner_job = Job(
+  name = '{{profile.name}}',
+  role = '{{profile.role}}',
+  instances = '{{profile.instances}}',
+  update_config = UpdateConfig(),
+  constraints = {'os' : 'centos7'},
+  task = runner_task,
+  service = False,
+)
+
+DEVEL = Profile()
+STAGING = Profile()
+PRODUCTION = Profile()
+
+devel_job = runner_job(
+  environment = 'devel',
+  tier = 'preemptible',
+).bind(profile = DEVEL)
+
+staging_job = runner_job(
+  environment = 'staging',
+  tier = 'preferred',
+).bind(profile = STAGING)
+
+prod_job = runner_job(
+  environment = 'prod',
+  tier = 'preferred',
+).bind(profile = PRODUCTION)
+
+jobs = []
+for cluster in ['atla', 'smf1']:
+  jobs.append(devel_job(cluster = cluster))
+  jobs.append(staging_job(cluster = cluster))
+  jobs.append(prod_job(cluster = cluster))

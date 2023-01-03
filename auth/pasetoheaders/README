@@ -1,0 +1,27 @@
+commands use to create TSS material to sign tokens:
+
+tss material create pasetoheaders/prod/tfe/private_keys.json -f YOUR_LOCAL_FILE_WITH_KEYS.json \
+	-d audubon tfe.router.preflight \
+	-d audubon tfe.router.testing \
+	-d audubon tfe.router \
+	-d audubon tfe.router.internal  \
+	-d audubon tfe.router.dataproducts \
+	-d audubon mesos.test.slave \
+	-d audubon mesos.prod.slave \
+	-o group authplatform \
+	-a group authplatform \
+	-u tfe \
+	-g tfe
+
+
+initial (test) key used, with the following file contents. this is a PUBLIC private key, and
+is NOT secure. It will be used as a test in fail-open mode
+{
+  "selected_key_version": 1,
+  "keys": [
+    {
+      "key_version": 1,
+      "key_data": "b4cbfb43df4ce210727d953e4a713307fa19bb7d9f85041438d9e11b942a37741eb9dbbbbc047c03fd70604e0071f0987e16b28b757225c11f00415d0e20b1a2"
+    }
+  ]
+}

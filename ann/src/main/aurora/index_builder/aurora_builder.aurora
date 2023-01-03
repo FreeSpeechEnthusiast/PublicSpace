@@ -1,0 +1,111 @@
+import os
+
+CPU  = int(os.environ.get('CPU',32))
+RAM  = int(os.environ.get('RAM_GB',150)) * GB
+DISK = int(os.environ.get('DISK_GB',60)) * GB
+
+class Profile(Struct):
+  name                 = Default(String, 'ann_index_builder')
+  jar                  = Default(String, 'indexbuilder-deploy.jar')
+  role                 = Required(String)
+  environment          = Required(String)
+  hadoop_cluster       = Default(String, 'dw2-smf1')
+  embedding_args       = Required(String)
+  output_dir           = Required(String)
+  num_dimensions       = Required(Integer)
+  annoy_num_trees      = Default(Integer, 40)
+  algo                 = Required(String)
+  entity_kind          = Required(String)
+  metric               = Required(String)
+  ef_construction      = Default(Integer, 200)
+  max_m                = Default(Integer, 16)
+  expected_elements    = Default(Integer, 1500000)
+  concurrency_level    = Default(Integer, 32)
+  packer_role          = Default(String, "ann-platform")
+  packer_package       = Default(String, "ann_index_builder")
+  packer_version       = Default(String, "latest")
+
+
+resources_config = Resources(cpu = CPU, ram = RAM, disk = DISK)
+
+installers = [
+  Packer.install(
+    name='{{profile.packer_package}}',
+    role='{{profile.packer_role}}',
+    version='{{profile.packer_version}}'
+  )
+]
+
+runner_process = HadoopProcess(
+  name = '{{profile.name}}_process',
+  arguments = ' '.join([
+    'jar {{profile.jar}}',
+    "-libjars 'libs/*'",
+    '-Dscalding.auto_tuning.service.identifier=twtr:svc:{{profile.role}}:{{profile.name}}:{{environment}}:{{cluster}}',
+    '--hdfs',
+    '--concurrency_level {{profile.concurrency_level}}',
+    '--output_dir {{profile.output_dir}}',
+    '--algo {{profile.algo}}',
+    '--num_dimensions {{profile.num_dimensions}}',
+    '--annoy_num_trees {{profile.annoy_num_trees}}',
+    '--entity_kind {{profile.entity_kind}}',
+    '--metric {{profile.metric}}',
+    '--ef_construction {{profile.ef_construction}}',
+    '--max_m {{profile.max_m}}',
+    '--expected_elements {{profile.expected_elements}}',
+    '{{profile.embedding_args}}'
+  ]),
+  jvm = Java8(
+    extra_jvm_flags = ' '.join([
+      '-Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address={{thermos.ports[debug]}}',
+      '-XX:MaxMetaspaceSize=256M',
+      '-XX:MetaspaceSize=256M',
+      '-Dcom.twitter.dal.client.builder.DALServiceIdentifier=twtr:svc:{{profile.role}}:{{profile.name}}:{{environment}}:{{cluster}}',
+      '-Dcom.twitter.dal.client.builder.DALRequireTls=true',
+    ]),
+    jvm_environment = {
+      'HADOOP_CLASSPATH': '{{profile.jar}}:libs/*:',
+    }
+  ),
+  resources = resources_config,
+  hadoop = Hadoop(config='/etc/hadoop/hadoop-conf-{{profile.hadoop_cluster}}')
+)
+
+runner_task = SequentialTask(
+  resources = resources_config,
+  processes = installers + [runner_process]
+)
+
+runner_job = Job(
+  name = '{{profile.name}}',
+  role = '{{profile.role}}',
+  update_config = UpdateConfig(),
+  constraints = {'os' : 'centos7'},
+  task = runner_task,
+  service = False,
+)
+
+DEVEL = Profile()
+STAGING = Profile()
+PRODUCTION = Profile()
+
+devel_job = runner_job(
+  environment = 'devel',
+  tier = 'preemptible',
+).bind(profile = DEVEL)
+
+staging_job = runner_job(
+  environment = 'staging',
+  tier = 'preferred',
+).bind(profile = STAGING)
+
+prod_job = runner_job(
+  environment = 'prod',
+  tier = 'preferred',
+).bind(profile = PRODUCTION)
+
+jobs = []
+for cluster in ['atla', 'smf1']:
+  jobs.append(devel_job(cluster = cluster))
+  jobs.append(staging_job(cluster = cluster))
+  jobs.append(prod_job(cluster = cluster))

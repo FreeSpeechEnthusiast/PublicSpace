@@ -1,0 +1,5 @@
+db_config: db.yml
+zookeeper_root: /twitter/rasvelg
+task_dir: .
+tasks:
+  rasvelg_dal_statebird_keyspace_overflow_alert: rasvelg_dal_statebird_keyspace_overflow_alert.yml

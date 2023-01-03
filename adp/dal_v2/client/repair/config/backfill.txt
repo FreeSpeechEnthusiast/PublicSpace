@@ -1,0 +1,3 @@
+# For each dataset to repair, specify cli arguments here (new-line separated)
+# Example:
+# repair segment-definition --name logs.test_data_1 --role test_data_access_role --location-name dw2-smf1 --url viewfs://hadoop-dw2-nn.smf1.twitter.com/logs/test_data_1/yyyy/MM/dd --segment-type partitioned --format parquet

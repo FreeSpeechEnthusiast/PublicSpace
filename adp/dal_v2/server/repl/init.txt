@@ -1,0 +1,121 @@
+import com.twitter.conversions.DurationOps._
+import com.twitter.dal.client._
+import com.twitter.dal.common.jira.DalJiraClient
+import com.twitter.dal.common.util.DALUtils
+import com.twitter.dal.thriftscala._
+import com.twitter.dal.schema.thriftscala._
+import com.twitter.finagle.mtls.authentication.ServiceIdentifier
+import com.twitter.finagle.mtls.client.MtlsStackClient._
+import com.twitter.finagle.ThriftMux
+import com.twitter.scalding._
+import com.twitter.statebird.v2.thriftscala._
+import com.twitter.twadoop.batch.statebird.StatebirdUtil
+import com.twitter.twadoop.batch.model.BatchApp
+import com.twitter.twadoop.batch.model.BatchEnvironment
+import com.twitter.twadoop.batch.model.SimpleBatchApp
+import com.twitter.twadoop.util.keybird.KeybirdUtil
+import com.twitter.util.{Await, Time}
+
+import java.net.URI
+import java.text.SimpleDateFormat
+import java.time._
+import java.time.format._
+import java.util.TimeZone
+
+TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+
+implicit val tz = TimeZone.getTimeZone("UTC")
+implicit val dp = DateParser.default
+
+val userName = System.getProperty("user.name")
+val serviceIdentifier = ServiceIdentifier(
+  role = userName,
+  service = "dal-repl",
+  environment = "devel",
+  zone = "local"
+)
+
+sealed trait ClientFactory
+
+object LocalProdClient extends ClientFactory {
+  def apply(): Dal.MethodPerEndpoint =
+    ThriftMux.client
+      .withMutualTls(serviceIdentifier)
+      .build[Dal.MethodPerEndpoint]("replUser=/cluster/local/dal/prod/dal")
+}
+
+object LocalProdROClient extends ClientFactory {
+  def apply(): Dal.MethodPerEndpoint =
+    ThriftMux.client
+      .withMutualTls(serviceIdentifier)
+      .build[Dal.MethodPerEndpoint]("replUser=/cluster/local/dal/prod/dal_read_only")
+}
+
+object LocalStagingClient extends ClientFactory {
+  def apply(): Dal.MethodPerEndpoint =
+    ThriftMux.client
+      .withMutualTls(serviceIdentifier)
+      .build[Dal.MethodPerEndpoint]("replUser=/cluster/local/dal-staging/staging/dal")
+}
+
+object LocalStagingROClient extends ClientFactory {
+  def apply(): Dal.MethodPerEndpoint =
+    ThriftMux.client
+      .withMutualTls(serviceIdentifier)
+      .build[Dal.MethodPerEndpoint]("replUser=/cluster/local/dal-staging/staging/dal_read_only")
+}
+
+object LocalDevClient extends ClientFactory {
+  def apply(): Dal.MethodPerEndpoint =
+    ThriftMux.client
+      .withMutualTls(serviceIdentifier)
+      .build[Dal.MethodPerEndpoint](s"replUser=/cluster/local/dal-staging/devel/dal-$userName")
+}
+
+// Initialize wily, to connect to production service names
+com.twitter.server.Init.apply()
+
+val physicalLocationDw2Smf1 = PhysicalLocation(Constants.HadoopCluster, "dw2-smf1")
+
+var envProd = BatchEnvironment.PROD
+var batchApp = new SimpleBatchApp(userName, "testing", envProd)
+var sbBatchApp = StatebirdUtil.asBatchApp(batchApp, userName)
+var context = Context.ApplicationContext(ApplicationContext(sbBatchApp, userName, physicalLocationDw2Smf1))
+var appContext = DALUtils.toApplicationContext(context)
+
+var envDev = BatchEnvironment.DEV
+var batchAppDev = new SimpleBatchApp(userName, "testing", envDev)
+var sbBatchAppDev = StatebirdUtil.asBatchApp(batchAppDev, userName)
+var contextDev = Context.ApplicationContext(ApplicationContext(sbBatchAppDev, userName, physicalLocationDw2Smf1))
+var appContextDev = DALUtils.toApplicationContext(contextDev)
+
+// var sdf = new SimpleDateFormat("yyyy-MM-dd")
+// var sdString = "2019-01-01"
+// var edString = "2019-01-02"
+// var sd = sdf.parse(sdString)
+// var ed = sdf.parse(edString)
+// var temporalInterval = TemporalInterval(Some(Timestamp(sd.getTime)), Some(Timestamp(ed.getTime)))
+// var contextPhysical = Context.PhysicalRunContext(PhysicalRunContext(sbBatchApp, temporalInterval, 1234567890, "test", physicalLocationDw2Smf1))
+
+// Finagle client
+lazy val client = LocalProdClient()
+lazy val roClient = LocalProdROClient()
+lazy val stagingClient = LocalStagingClient()
+lazy val stagingROClient = LocalStagingROClient()
+lazy val devClient = LocalDevClient()
+
+// DALClient
+lazy val clientConfig = ProvidedServiceDALClientConfig(client)
+lazy val dalClient = DALClient(clientConfig, context)
+
+lazy val stagingClientConfig = ProvidedServiceDALClientConfig(stagingClient)
+lazy val stagingDalClient = DALClient(stagingClientConfig, contextDev)
+
+// Jira client
+lazy val jiraApiCredentials = KeybirdUtil.getCredentialsFromFile("/var/lib/tss/keys/dal-staging/dal-jira/service.yml", "jira_api")
+
+lazy val jiraClientStandby = DalJiraClient(jiraApiCredentials.getUsername, jiraApiCredentials.getPassword, DalJiraClient.JiraApiHostnames.Standby)
+lazy val jiraClient = DalJiraClient(jiraApiCredentials.getUsername, jiraApiCredentials.getPassword, DalJiraClient.JiraApiHostnames.Prod)
+
+com.twitter.logging.Logger.get("com.twitter.configbus.subscriber.ConfigbusSubscriber").setLevel(com.twitter.logging.Level.OFF)
+com.twitter.logging.Logger.get("com.twitter.configbus.client.file.HeartBeatMonitor").setLevel(com.twitter.logging.Level.OFF)

@@ -1,0 +1,217 @@
+import os
+
+class Profile(Struct):
+  role              = Default(String, os.environ['USER'])
+  environment       = Default(String, "devel")
+  name              = Default(String, "dal")
+  package           = Default(String, "{{name}}")
+  version           = Default(String, "latest")
+  jar               = Default(String, "{{name}}-server.jar")
+  args              = Default(String, "")
+  instances         = Default(Integer, 1)
+  config            = Required(String)
+  si_service        = Default(String, "{{name}}")
+  si_environment    = Default(String, "{{environment}}")
+  enable_hooks      = Default(Boolean, False)
+  cpu               = Default(Float, 4.0)
+  ram               = Default(Integer, 32*GB)
+  disk              = Default(Integer, 16*GB)
+  tier              = Default(String, 'preemptible')
+  splunk_app_id     = Default(String, "{{role}}")
+  splunk_tag        = Default(String, "{{cluster}}/{{role}}/{{environment}}/{{name}}")
+
+
+# Creates JAAS config for Kafka => EB migration. This step follows after creating keytabs in Kite
+# described here https://confluence.twitter.biz/pages/viewpage.action?pageId=107102665
+create_jaas_config = Process(
+    name           = 'create_jaas_config',
+    cmdline        = '''
+    mkdir config
+    echo "KafkaClient {
+      com.sun.security.auth.module.Krb5LoginModule required
+      principal=\\"{{profile.role}}@TWITTER.BIZ\\"
+      useKeyTab=true
+      storeKey=true
+      keyTab=\\"/var/lib/tss/keys/fluffy/keytabs/client/{{profile.role}}.keytab\\"
+      doNotPrompt=true;
+    };" >> config/jaas.conf
+    '''
+)
+
+def thrift_run(profile): return JVMProcess(
+  name = '{{profile.name}}',
+  jvm = Java11(
+    extra_jvm_flags =  ' '.join([
+      "-XX:CMSMaxAbortablePrecleanTime=15000",
+      "-Denvironment={{profile.environment}}",
+      "-Djavax.net.ssl.sessionCacheSize=1000",
+      "-Dlog.service.output={{profile.name}}.log",
+      "-Dlog.lens.index={{profile.splunk_app_id}}",
+      "-Dlog.lens.tag={{profile.splunk_tag}}",
+      "-Djava.security.auth.login.config=config/jaas.conf",
+    ]),
+    heap = 38*GB,
+    metaspace = 500*MB
+  ),
+  arguments = ' '.join([
+    "-jar {{profile.jar}}",
+    "-admin.port=:{{thermos.ports[admin]}}",
+    "-service.port=:{{thermos.ports[thrift]}}",
+    "-service.configClass={{profile.config}}",
+    "-serviceIdentifier.cluster={{cluster}}",
+    "-serviceIdentifier.role={{profile.role}}",
+    "-serviceIdentifier.service={{profile.si_service}}",
+    "-serviceIdentifier.environment={{profile.si_environment}}",
+    "{{profile.args}}",
+    "-com.twitter.eventbus.client.zoneName={{cluster}}",
+    "-com.twitter.finagle.toggle.flag.overrides=com.twitter.finagle.mux.TlsSnoopingByDefault=1.0",
+    "-com.twitter.finagle.toggle.flag.overrides=com.twitter.finagle.mtls.server.UseThriftEndpointAcls=0.0",
+    "-com.twitter.eventbus.client.EnableKafkaSaslTls=true"
+  ]) +  " com.twitter.dal.server.Main",
+  resources = Resources(cpu = profile.cpu(), ram = profile.ram(), disk = profile.disk())
+)
+
+thrift_install = Packer.install(
+  name = '{{profile.package}}',
+  role = '{{profile.role}}',
+  version = '{{profile.version}}'
+)
+
+stats = Stats(library="metrics", port="admin")
+
+discover_profiler_port_process = Process(
+  name = 'discover_profiler_port',
+  cmdline = 'echo {{thermos.ports[profiler]}} > profiler.port'
+)
+
+async_profiler_install = Packer.install(
+  name = 'async-profiler',
+  role = 'csl-perf',
+  version = 'latest'
+)
+
+def thrift_task(profile):
+ thrift_run_p = thrift_run(profile)
+ return Task(
+  name = "install_and_run",
+  processes = [
+    thrift_install,
+    create_jaas_config,
+    stats,
+    thrift_run_p,
+    discover_profiler_port_process,
+    async_profiler_install,
+    HeapDump()
+  ],
+  resources = Resources(cpu = profile.cpu(), ram = profile.ram(), disk = profile.disk()),
+  constraints = order(thrift_install, create_jaas_config, thrift_run_p)
+)
+
+def get_service(profile):
+  return Service(
+    role = '{{profile.role}}',
+    environment = '{{profile.environment}}',
+    instances = '{{profile.instances}}',
+    name = '{{profile.name}}',
+    contact = 'adp-team@twitter.com',
+    announce = Announcer(primary_port='thrift', portmap={'aurora': 'admin', 'health': 'admin'}),
+    update_config = UpdateConfig( watch_secs = 0, batch_size = 1),
+    health_check_config = HealthCheckConfig(
+        initial_interval_secs = 80,
+        interval_secs = 10,
+        timeout_secs = 15,
+        max_consecutive_failures = 4,
+        min_consecutive_successes = 2),
+    task = thrift_task(profile),
+    enable_hooks='{{profile.enable_hooks}}',
+    constraints = {
+      'os': 'centos7',
+    }
+  )
+
+Staging = Profile(
+  config = "com.twitter.dal.server.config.StagingConfig",
+  role = "dal-staging",
+  environment = "staging",
+  instances = 5
+)
+
+Qa = Profile(
+  config = "com.twitter.dal.server.config.StagingConfig",
+  name = "dal-qa",
+  role = "dal-staging",
+  environment = "staging",
+  jar = "dal-server.jar",
+  si_service = "dal",
+  si_environment = "staging",
+  tier = 'preferred',
+  instances = 3
+)
+
+ReadOnlyProd = Profile(
+  config = "com.twitter.dal.server.config.ReadonlyProdConfig",
+  name = "dal_read_only",
+  package = "dal_read_only",
+  role = "dal",
+  environment = "prod",
+  jar = "dal-server.jar",
+  si_service = "dal_read_only",
+  si_environment = "prod",
+  tier = 'preferred',
+  instances = 8,
+  cpu = 12,
+  ram = 128*GB,
+  disk = 128*GB,
+)
+
+ReadOnlyStaging = Profile(
+  config = "com.twitter.dal.server.config.ReadonlyStagingConfig",
+  name = "dal_read_only",
+  package = "dal_read_only",
+  role = "dal-staging",
+  environment = "staging",
+  jar = "dal-server.jar",
+  si_service = "dal_read_only",
+  si_environment = "staging",
+  instances = 3
+)
+
+# The bind variable `WF_JOB_NAME` below is normally bound by the
+# aurora-workflows build process.
+#
+# If you are calling aurora from the command line and need to bind the
+# variable yourself, add the below arguments:
+#    --bind WF_JOB_NAME=dal-jboyd
+# to your aurora command, e.g.:
+#   aurora job inspect smf1/dal-staging/devel/dal-jboyd  adp/dal_v2/server/config/deploy.aurora --bind WF_JOB_NAME=dal-jboyd
+# 
+# See https://docbird.twitter.biz/workflows/recipes.html?highlight=wf_job_name for some examples using WF_JOB_NAME
+Devel = Profile(
+  config = "com.twitter.dal.server.config.StagingConfig",
+  name = '{{WF_JOB_NAME}}',
+  package = "{{WF_JOB_NAME}}",
+  role = "dal-staging",
+  environment = "devel",
+  jar = "dal-server.jar",
+  si_service = "dal",
+  si_environment = "staging",
+  instances = 1,
+  args = ' -com.twitter.server.filter.throttlingAdmissionControl=none '
+)
+
+Prod = Profile(
+  config = "com.twitter.dal.server.config.ProdConfig",
+  role = "dal",
+  environment = "prod",
+  instances = 5,
+  tier = 'preferred'
+)
+
+dcs = ["smf1", "atla", "pdxa"]
+profiles = [Staging, Devel, Qa, ReadOnlyStaging, ReadOnlyProd, Prod]
+jobs = []
+
+for dc in dcs:
+  for prof in profiles:
+    service = get_service(prof)
+    jobs += [service(cluster = dc, tier = '{{profile.tier}}').bind(profile = prof)]

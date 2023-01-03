@@ -1,0 +1,2 @@
+com.twitter.auth.httpcontext.AuthPasetoHttpContext
+com.twitter.auth.httpcontext.S2SPrincipalTokenHttpContext
